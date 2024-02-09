@@ -1,6 +1,11 @@
 import configparser
 import subprocess
+
 import tkinter as tk
+
+# from tkinter import ttk
+from tkinterdnd2 import TkinterDnD, DND_FILES
+
 from tkinter import filedialog
 from lib.my_icon import get_photo_image4icon
 from lib.transcription_controller import TranscriptionController
@@ -25,6 +30,9 @@ class TranscriptionApp:
         width = self.config.get("DEFAULT", "width", fallback="600")
         height = self.config.get("DEFAULT", "height", fallback="200")
         self.window.geometry(f"{width}x{height}")
+
+        # ウィンドウサイズを変更できないようにする
+        self.window.resizable(False, False)
 
         # タイムスタンプフラグを復元
         timestamp_flag = self.config.get("DEFAULT", "timestamp_flag", fallback="False")
@@ -111,13 +119,15 @@ class TranscriptionApp:
         self.file_path_display = tk.Text(
             file_frame, height=1, width=50, font=("Arial", 8)
         )
+        self.file_path_display.drop_target_register(DND_FILES)  # type: ignore
+        self.file_path_display.dnd_bind("<<Drop>>", self.drop)  # type: ignore
         self.file_path_display.grid(row=1, column=1, padx=5, pady=5, columnspan=2)
 
         # 実行ボタン（横長にサイズ変更）
         self.transcribe_button = tk.Button(
             file_frame, text="実行", command=self.run_transcribe, width=label_width
         )
-        self.transcribe_button.grid(row=2, column=1, padx=5, pady=5)
+        self.transcribe_button.grid(row=3, column=1, padx=5, pady=5)
 
         # タイムスタンプチェックボックス
         self.timestamp_flag = tk.BooleanVar(value=self.saved_timestamp_flag)
@@ -135,6 +145,12 @@ class TranscriptionApp:
             self.window, text="😀 準備完了", bd=1, relief=tk.SUNKEN, anchor=tk.W
         )
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def drop(self, event):
+        print(event)
+        # ドロップされたファイルパスをテキストエリアに表示
+        self.file_path_display.delete("1.0", tk.END)
+        self.file_path_display.insert(tk.END, event.data)
 
     # ファイル選択ダイアログを開く
     def open_file_dialog(self):
@@ -226,7 +242,7 @@ class TranscriptionApp:
 
 
 # ウィンドウの作成とアプリケーションの開始
-window = tk.Tk()
+window = TkinterDnD.Tk()
 app = TranscriptionApp(window)
 window.update()
 window.mainloop()
