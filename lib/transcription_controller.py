@@ -51,10 +51,7 @@ class TranscriptionController:
             silenced_files = silencer.exec()
 
             self.set_status("😇 WhisperAPIを呼び出しています…")
-            transcriptor = WhisperTranscriptionCaller(
-                self.api_key, silenced_files, self.timestamp_flag
-            )
-            transcription = transcriptor.transcribe_audio_files()
+            transcription = self.transcriptor.transcribe_audio_files(silenced_files)
 
             return self.output(transcription=transcription)
 
@@ -85,3 +82,12 @@ class TranscriptionController:
         if sys.flags.debug:
             print(f"Transcription saved to: [{output_file_name}]")
         return output_file_name
+
+    def check_api_token(self):
+        # APIトークンの有効性を確認
+        self.set_status("😇 APIトークンを確認しています…")
+        self.transcriptor = WhisperTranscriptionCaller(
+            self.api_key, self.timestamp_flag
+        )
+
+        return self.transcriptor.check_api_token()

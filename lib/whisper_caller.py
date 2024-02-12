@@ -2,13 +2,13 @@ import datetime
 import os
 import subprocess
 import sys
+import tempfile
 from openai import OpenAI
 
 
 class WhisperTranscriptionCaller:
-    def __init__(self, api_key, audio_files, timestamp_flag: bool):
+    def __init__(self, api_key, timestamp_flag: bool):
         self.api_key = api_key
-        self.audio_files = audio_files
         self.timestamp_flag = timestamp_flag
 
         self.transcription = ""
@@ -16,10 +16,17 @@ class WhisperTranscriptionCaller:
         self.model = "whisper-1"
         self.prompt = "こんにちは、本日は晴天です。"
 
-        self.client = OpenAI(api_key=api_key)
+        # self.client = OpenAI(api_key=api_key)
 
-    def transcribe_audio_files(self):
-        for audio_file in self.audio_files:
+    def transcribe_audio_files(
+        self, audio_files: list[str], api_key: str | None = None
+    ):
+        if api_key is None:
+            self.client = OpenAI(api_key=self.api_key)
+        else:
+            self.client = OpenAI(api_key=api_key)
+
+        for audio_file in audio_files:
             # # # Split audio if the file size is over the limit
             if sys.flags.debug:
                 print("==== split audio file")
@@ -113,3 +120,28 @@ class WhisperTranscriptionCaller:
                 split_files.append(os.path.join("work", filename))
 
         return sorted(split_files)
+
+    def check_api_token(self) -> bool:
+        # APIトークンの有効性を確認
+        self.client = OpenAI(api_key=self.api_key)
+
+        # テンポラリファイルを作成
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_file = os.path.join(temp_dir, "temp_file.wav")
+            with open(temp_file, "wb") as fh:
+                fh.write(b"")
+            with open(temp_file, "rb") as fh:
+                # APIキーの有効性を確認するために、簡単なAPIリクエストを行う
+                try:
+                    self.client.audio.transcriptions.create(
+                        model=self.model,
+                        file=fh,
+                        language=self.language,
+                        response_format="json",
+                    )
+                except Exception as e:
+                    if e.code == "invalid_api_key":  # type: ignore
+                        if sys.flags.debug:
+                            print("APIキーが無効です。エラーメッセージ:", e)
+                        return False
+        return True
