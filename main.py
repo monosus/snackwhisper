@@ -56,7 +56,7 @@ class TranscriptionApp:
 
     def check_ffmpeg_exists(self):
         cmd = "ffmpeg"
-        result = subprocess.run(["where", cmd], capture_output=True, text=True)
+        result = subprocess.run(["which", cmd], capture_output=True, text=True)
         # エラーレベル（exit code）を取得、0 ならffmpegが存在する / 1 なら存在しない
         error_level = result.returncode
         if error_level == 0:
