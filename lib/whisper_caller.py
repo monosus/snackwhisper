@@ -111,6 +111,8 @@ class WhisperTranscriptionCaller:
             "-acodec",
             "copy",
             "work/split-%03d.mp3",
+            "-loglevel",
+            "quiet",
         ]
         subprocess.run(command, check=True)
 

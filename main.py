@@ -1,5 +1,7 @@
 import configparser
+import os
 import subprocess
+import sys
 
 import tkinter as tk
 
@@ -28,7 +30,7 @@ class TranscriptionApp:
 
         # ウィンドウのサイズを復元
         width = self.config.get("DEFAULT", "width", fallback="600")
-        height = self.config.get("DEFAULT", "height", fallback="200")
+        height = self.config.get("DEFAULT", "height", fallback="220")
         self.window.geometry(f"{width}x{height}")
 
         # ウィンドウサイズを変更できないようにする
@@ -56,7 +58,16 @@ class TranscriptionApp:
 
     def check_ffmpeg_exists(self):
         cmd = "ffmpeg"
-        result = subprocess.run(["where", cmd], capture_output=True, text=True)
+        startupinfo = None
+        if os.name == "nt":  # Windowsの場合
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        result = subprocess.run(
+            ["where", cmd], capture_output=True, text=True, startupinfo=startupinfo
+        )
+
         # エラーレベル（exit code）を取得、0 ならffmpegが存在する / 1 なら存在しない
         error_level = result.returncode
         if error_level == 0:
@@ -147,10 +158,19 @@ class TranscriptionApp:
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def drop(self, event):
-        print(event)
+        if sys.flags.debug:
+            print(event)
         # ドロップされたファイルパスをテキストエリアに表示
         self.file_path_display.delete("1.0", tk.END)
-        self.file_path_display.insert(tk.END, event.data)
+        replaced = self.replace_irregular_char(event.data)
+        self.file_path_display.insert(tk.END, replaced)
+
+    # 入力テキストに\が含まれていれば/に変換し、{}を削除する
+    def replace_irregular_char(self, text):
+        text = text.replace("\\", "/")
+        text = text.replace("{", "")
+        text = text.replace("}", "")
+        return text
 
     # ファイル選択ダイアログを開く
     def open_file_dialog(self):
@@ -200,13 +220,13 @@ class TranscriptionApp:
             self.set_status("😮 ffmpegをインストールしてください")
             return
 
+        if self.file_path_display.get("1.0", tk.END).strip() == "":
+            self.set_status("😮 ファイルが未選択です")
+            return
+
         # APIトークンを保存
         if self.save_settings() is False:
             self.set_status("😮‍💨 APIトークンが未設定です")
-            return
-
-        if self.file_path_display.get("1.0", tk.END).strip() == "":
-            self.set_status("😮 ファイルが未選択です")
             return
 
         # ファイルパスを取得
@@ -214,11 +234,20 @@ class TranscriptionApp:
         file_path = file_path_display_content.strip()
         timestamp = self.timestamp_flag.get()
 
+        # 実行直前にもAPIトークンを取得
+        self.api_token = self.config.get("DEFAULT", "api_token", fallback="")
+
         controller = TranscriptionController(
             self.api_token, file_path, timestamp_flag=timestamp
         )
         controller.set_status = self.set_status
 
+        # APIトークンの有効性を確認
+        if controller.check_api_token() is False:
+            self.set_status("😮‍💨 APIトークンが無効です")
+            return
+
+        # ファイル名を取得してステータスバーに表示
         filebody = file_path.split("/")[-1]
         self.set_status(f"😆 開始します: {filebody}", ButtonState.DISABLE)
 

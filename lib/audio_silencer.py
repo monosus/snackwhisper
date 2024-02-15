@@ -58,6 +58,8 @@ class AudioSilencer:
             "-acodec",
             "libmp3lame",
             output_file,
+            "-loglevel",
+            "quiet",
         ]
         subprocess.run(command, check=True)
 
