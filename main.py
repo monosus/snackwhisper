@@ -44,6 +44,12 @@ class TranscriptionApp:
         self.main_frame = tk.Frame(self.window, padx=20, pady=20)
         self.main_frame.pack(expand=True, fill=tk.BOTH)
 
+        # 静音除去を実行するかどうかのフラグ
+        setting_flag_silence = self.config.get(
+            "DEFAULT", "flag_silence_removal", fallback="True"
+        )
+        self.flag_silence_removal: bool = setting_flag_silence == "True"
+
         self.create_widgets()
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -151,6 +157,17 @@ class TranscriptionApp:
         )
         timestamp_checkbox.grid(row=2, column=2, padx=5, pady=5)
 
+        # 静音除去チェックボックス
+        self.silence_removal_flag = tk.BooleanVar(value=self.flag_silence_removal)
+        self.silence_removal_checkbox = tk.Checkbutton(
+            file_frame,
+            text="静音除去",
+            variable=self.silence_removal_flag,
+            onvalue=True,
+            offvalue=False,
+        )
+        self.silence_removal_checkbox.grid(row=2, column=1, padx=5, pady=5)
+
         # ステータス表示エリア
         self.status_bar = tk.Label(
             self.window, text="😀 準備完了", bd=1, relief=tk.SUNKEN, anchor=tk.W
@@ -194,6 +211,8 @@ class TranscriptionApp:
         if api_token == "":
             return False
 
+        self.load_from_widgets()
+
         # APIトークンを保存
         token = self.api_token_entry.get()
         self.config["DEFAULT"]["API_TOKEN"] = token
@@ -208,6 +227,9 @@ class TranscriptionApp:
 
         # タイムスタンプフラグを保存
         self.config["DEFAULT"]["timestamp_flag"] = str(self.timestamp_flag.get())
+
+        # 静音除去フラグを保存
+        self.config["DEFAULT"]["flag_silence_removal"] = str(self.flag_silence_removal)
 
         with open("config.ini", "w") as configfile:
             self.config.write(configfile)
@@ -229,13 +251,13 @@ class TranscriptionApp:
             self.set_status("😮‍💨 APIトークンが未設定です")
             return
 
+        # UIの情報を読み込む
+        self.load_from_widgets()
+
         # ファイルパスを取得
         file_path_display_content = self.file_path_display.get("1.0", tk.END)
         file_path = file_path_display_content.strip()
         timestamp = self.timestamp_flag.get()
-
-        # 実行直前にもAPIトークンを取得
-        self.api_token = self.config.get("DEFAULT", "api_token", fallback="")
 
         controller = TranscriptionController(
             self.api_token, file_path, timestamp_flag=timestamp
@@ -252,7 +274,7 @@ class TranscriptionApp:
         self.set_status(f"😆 開始します: {filebody}", ButtonState.DISABLE)
 
         # 音声書き起こしを実行
-        controller.transcribe_audio()
+        controller.transcribe_audio(self.flag_silence_removal)
 
     def on_closing(self):
         # アプリケーション終了時にAPIトークンを保存
@@ -268,6 +290,11 @@ class TranscriptionApp:
             self.set_status("😫 APIトークンが無効です")
         else:
             self.set_status(f"😫 エラーです: {message}")
+
+    # UIの情報を読み込む
+    def load_from_widgets(self):
+        self.api_token = self.api_token_entry.get()
+        self.flag_silence_removal = self.silence_removal_flag.get()
 
 
 # ウィンドウの作成とアプリケーションの開始

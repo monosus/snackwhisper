@@ -24,7 +24,7 @@ class TranscriptionController:
             self.set_status_function(message, button_state)
 
     # 音声書き起こしを実行
-    def transcribe_audio(self):
+    def transcribe_audio(self, flag_silence_removal: bool = False):
 
         # 別スレッドで音声抽出と静音除去を実行
         def handling_transcribe_audio():
@@ -48,6 +48,7 @@ class TranscriptionController:
         def silence_and_transcribe():
             self.set_status("😇 音声抽出と静音除去を処理しています…")
             silencer = AudioSilencer(self.audio_file)
+            silencer.flag_silence_removal = flag_silence_removal  # 静音除去フラグを設定
             silenced_files = silencer.exec()
 
             self.set_status("😇 WhisperAPIを呼び出しています…")

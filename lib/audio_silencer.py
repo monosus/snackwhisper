@@ -13,6 +13,7 @@ class AudioSilencer:
         input_path,
     ):
         self.input_path = input_path
+        self.flag_silence_removal = True
 
     def remove_silence_multiple(self, input_files: List[str], suffix="_silenced.mp3"):
         newfiles: List[str] = []
@@ -77,6 +78,10 @@ class AudioSilencer:
         if sys.flags.debug:
             print("==== remove silence part")
 
-        silenced_files = self.remove_silence_multiple([mp3_file])
+        # フラグを確認して静音部分を除去
+        if self.flag_silence_removal:
+            silenced_files = self.remove_silence_multiple([mp3_file])
+        else:
+            silenced_files = [mp3_file]
 
         return silenced_files
