@@ -16,8 +16,14 @@ class TranscriptionController:
         self.transcription = ""
         self.language = "ja"
         self.model = "whisper-1"
+        self.prompt = None
+        self.keep_silence_removed_files = True
 
         self.set_status_function: Callable[[str, ButtonState], None] | None = None
+
+    def set_prompt(self, prompt: str):
+        if prompt is not None:
+            self.prompt = prompt
 
     def set_status(self, message: str, button_state: ButtonState = ButtonState.NONE):
         if self.set_status_function is not None:
@@ -50,11 +56,27 @@ class TranscriptionController:
             silencer = AudioSilencer(self.audio_file)
             silencer.flag_silence_removal = flag_silence_removal  # 静音除去フラグを設定
             silenced_files = silencer.exec()
+            if self.keep_silence_removed_files:
+                # silenced_filesをすべて入力ファイルと同じディレクトリにコピーする
+                input_file_path = os.path.dirname(self.audio_file)
+                for silenced_file in silenced_files:
+                    copy_file(silenced_file, input_file_path)
 
             self.set_status("😇 WhisperAPIを呼び出しています…")
             transcription = self.transcriptor.transcribe_audio_files(silenced_files)
 
             return self.output(transcription=transcription)
+
+        # Windows / Mac / Linuxでのファイルコピー処理
+        def copy_file(src: str, dst: str):
+            import shutil
+
+            if sys.platform == "win32":  # Windows
+                shutil.copy(src, dst)
+            elif sys.platform == "darwin":  # Mac
+                shutil.copy2(src, dst)
+            elif sys.platform == "linux":  # Linux
+                shutil.copy2(src, dst)
 
         # デバッグ時はスリープしてデバッグしやすくする
         def sleep_for_debugging():
@@ -90,5 +112,8 @@ class TranscriptionController:
         self.transcriptor = WhisperTranscriptionCaller(
             self.api_key, self.timestamp_flag
         )
+
+        if self.prompt is not None:
+            self.transcriptor.set_prompt(self.prompt)
 
         return self.transcriptor.check_api_token()

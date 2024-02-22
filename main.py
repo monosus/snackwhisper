@@ -18,7 +18,7 @@ class TranscriptionApp:
 
     def __init__(self, window):
         self.config = configparser.ConfigParser()
-        self.config.read("config.ini")
+        self.config.read("config.ini", encoding="utf-8")
 
         self.window = window
         self.window.title("Snackゐsper")
@@ -49,6 +49,15 @@ class TranscriptionApp:
             "DEFAULT", "flag_silence_removal", fallback="True"
         )
         self.flag_silence_removal: bool = setting_flag_silence == "True"
+
+        setting_keep_silence_removed = self.config.get(
+            "DEFAULT", "keep_silence_removed", fallback="False"
+        )
+        self.keep_silence_removed: bool = setting_keep_silence_removed == "True"
+
+        self.prompt: str | None = self.config.get("DEFAULT", "prompt", fallback=None)
+        if self.prompt is not None:
+            self.prompt = self.prompt.replace("\\n", "\n")
 
         self.create_widgets()
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -231,7 +240,14 @@ class TranscriptionApp:
         # 静音除去フラグを保存
         self.config["DEFAULT"]["flag_silence_removal"] = str(self.flag_silence_removal)
 
-        with open("config.ini", "w") as configfile:
+        if self.prompt is not None:
+            self.config["DEFAULT"]["prompt"] = self.prompt.replace("\\n", "\n")
+
+        # 静音化ファイル保存フラグを保存
+        self.config["DEFAULT"]["keep_silenced"] = str(self.keep_silence_removed)
+
+        # 設定をファイルに書き込む
+        with open("config.ini", "w", encoding="UTF-8") as configfile:
             self.config.write(configfile)
 
         return True
@@ -262,6 +278,9 @@ class TranscriptionApp:
         controller = TranscriptionController(
             self.api_token, file_path, timestamp_flag=timestamp
         )
+        if self.prompt is not None:
+            controller.set_prompt(self.prompt)
+
         controller.set_status = self.set_status
 
         # APIトークンの有効性を確認

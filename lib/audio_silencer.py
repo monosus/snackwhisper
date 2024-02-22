@@ -15,6 +15,7 @@ class AudioSilencer:
         self.input_path = input_path
         self.flag_silence_removal = True
 
+    # 音声ファイルから無音部分を除去
     def remove_silence_multiple(self, input_files: List[str], suffix="_silenced.mp3"):
         newfiles: List[str] = []
         for input_file in input_files:
@@ -72,7 +73,10 @@ class AudioSilencer:
         # # Extract audio from MP4 to MP3
         if sys.flags.debug:
             print("==== Extract audio from MP4 to MP3")
-        mp3_file = os.path.join(temp_dir, "audio.mp3")
+
+        # self.input_path のbody後ろに_audioe.mp3をつけたファイル名を作る
+        filename_audio = os.path.basename(self.input_path).split(".")[0] + "_audio.mp3"
+        mp3_file = os.path.join(temp_dir, filename_audio)
         self.extract_audio(self.input_path, mp3_file)
 
         if sys.flags.debug:

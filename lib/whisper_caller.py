@@ -14,9 +14,17 @@ class WhisperTranscriptionCaller:
         self.transcription = ""
         self.language = "ja"
         self.model = "whisper-1"
-        self.prompt = "こんにちは、本日は晴天です。"
+        self.prompt = """dictionaryを使って、音声を書き起こしてください。
+
+[dictionary]
+清音除去
+"""
 
         # self.client = OpenAI(api_key=api_key)
+
+    def set_prompt(self, prompt: str):
+        if prompt is not None:
+            self.prompt = prompt
 
     def transcribe_audio_files(
         self, audio_files: list[str], api_key: str | None = None
@@ -55,6 +63,8 @@ class WhisperTranscriptionCaller:
             return transcript
 
     def create_with_timestamp(self, file_handler):
+        print(self.prompt)
+
         transcript = self.client.audio.transcriptions.create(
             model=self.model,
             file=file_handler,
