@@ -17,7 +17,7 @@ class TranscriptionController:
         self.language = "ja"
         self.model = "whisper-1"
         self.prompt = None
-        self.keep_silence_removed_files = True
+        self.keep_silence_removed_files = False
 
         self.set_status_function: Callable[[str, ButtonState], None] | None = None
 

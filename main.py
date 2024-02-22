@@ -275,13 +275,8 @@ class TranscriptionApp:
         file_path = file_path_display_content.strip()
         timestamp = self.timestamp_flag.get()
 
-        controller = TranscriptionController(
-            self.api_token, file_path, timestamp_flag=timestamp
-        )
-        if self.prompt is not None:
-            controller.set_prompt(self.prompt)
-
-        controller.set_status = self.set_status
+        # TranscriptionControllerを作成
+        controller = self.make_transcription_controller(file_path, timestamp)
 
         # APIトークンの有効性を確認
         if controller.check_api_token() is False:
@@ -294,6 +289,23 @@ class TranscriptionApp:
 
         # 音声書き起こしを実行
         controller.transcribe_audio(self.flag_silence_removal)
+
+    # TranscriptionControllerを作成
+    def make_transcription_controller(self, file_path, timestamp):
+        controller = TranscriptionController(
+            self.api_token, file_path, timestamp_flag=timestamp
+        )
+
+        # 設定ファイルに記載があれば静音除去ファイルの保存フラグを設定する
+        if self.config["DEFAULT"]["keep_silenced"] == "True":
+            controller.keep_silence_removed_files = True
+
+        if self.prompt is not None:
+            controller.set_prompt(self.prompt)
+
+        controller.set_status = self.set_status
+
+        return controller
 
     def on_closing(self):
         # アプリケーション終了時にAPIトークンを保存
