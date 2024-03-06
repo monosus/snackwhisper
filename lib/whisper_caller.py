@@ -92,6 +92,12 @@ class WhisperTranscriptionCaller:
         return transcript.text
 
     def split_audio(self, input_file, max_size):
+        startupinfo = None
+        if os.name == "nt":  # Windowsの場合
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
         duration_command = [
             "ffprobe",
             "-i",
@@ -105,7 +111,9 @@ class WhisperTranscriptionCaller:
         ]
         duration = float(
             subprocess.check_output(
-                duration_command, creationflags=subprocess.CREATE_NO_WINDOW
+                duration_command,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                startupinfo=startupinfo,
             )
             .decode("utf-8")
             .strip()
@@ -128,7 +136,12 @@ class WhisperTranscriptionCaller:
             "-loglevel",
             "quiet",
         ]
-        subprocess.run(command, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(
+            command,
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            startupinfo=startupinfo,
+        )
 
         split_files = []
         for filename in os.listdir("work"):

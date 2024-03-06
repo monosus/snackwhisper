@@ -1,4 +1,5 @@
 import configparser
+import os
 
 # import os
 import subprocess
@@ -96,10 +97,11 @@ class TranscriptionApp:
     def check_ffmpeg_exists(self):
         cmd = "ffmpeg"
         startupinfo = None
-        # if os.name == "nt":  # Windowsの場合
-        #     startupinfo = subprocess.STARTUPINFO()
-        #     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        #     startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        if os.name == "nt":  # Windowsの場合
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
 
         result = subprocess.run(
             ["where", cmd],

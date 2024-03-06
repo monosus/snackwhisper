@@ -56,6 +56,12 @@ class AudioSilencer:
             print("removed: {:.2f} [min]".format(org_ms / 60 / 1000))
 
     def extract_audio(self, input_file, output_file):
+        startupinfo = None
+        if os.name == "nt":  # Windowsの場合
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
         command = [
             "ffmpeg",
             "-i",
@@ -67,7 +73,12 @@ class AudioSilencer:
             "-loglevel",
             "quiet",
         ]
-        subprocess.run(command, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(
+            command,
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            startupinfo=startupinfo,
+        )
 
     def exec(self) -> List[str]:
 
