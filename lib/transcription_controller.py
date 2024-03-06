@@ -56,6 +56,7 @@ class TranscriptionController:
             silencer = AudioSilencer(self.audio_file)
             silencer.flag_silence_removal = flag_silence_removal  # 静音除去フラグを設定
             silenced_files = silencer.exec()
+
             if self.keep_silence_removed_files:
                 # silenced_filesをすべて入力ファイルと同じディレクトリにコピーする
                 input_file_path = os.path.dirname(self.audio_file)

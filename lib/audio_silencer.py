@@ -21,13 +21,17 @@ class AudioSilencer:
         for input_file in input_files:
             body = os.path.splitext(input_file)[0]
             newfile = body + suffix
+
             self.remove_silence(input_file, newfile)
             newfiles.append(newfile)
         return newfiles
 
     def remove_silence(self, input_path, output_path):
+
         # 音声ファイルを読み込み
+        # この中で2回cmd.exeのウィンドウが開かれている
         sound = AudioSegment.from_file(input_path)
+        # この後で1回cmd.exeのウィンドウが開かれている
 
         # 元の音声の長さを計算し、分単位で表示
         org_ms = len(sound)
@@ -63,7 +67,7 @@ class AudioSilencer:
             "-loglevel",
             "quiet",
         ]
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
 
     def exec(self) -> List[str]:
 
@@ -77,6 +81,7 @@ class AudioSilencer:
         # self.input_path のbody後ろに_audioe.mp3をつけたファイル名を作る
         filename_audio = os.path.basename(self.input_path).split(".")[0] + "_audio.mp3"
         mp3_file = os.path.join(temp_dir, filename_audio)
+
         self.extract_audio(self.input_path, mp3_file)
 
         if sys.flags.debug:

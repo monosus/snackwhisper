@@ -1,5 +1,6 @@
 import configparser
-import os
+
+# import os
 import subprocess
 import sys
 
@@ -55,10 +56,6 @@ class TranscriptionApp:
         )
         self.keep_silence_removed: bool = setting_keep_silence_removed == "True"
 
-        self.prompt: str | None = self.config.get("DEFAULT", "prompt", fallback=None)
-        if self.prompt is not None:
-            self.prompt = self.prompt.replace("\\n", "\n")
-
         self.create_widgets()
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -68,19 +65,48 @@ class TranscriptionApp:
         else:
             self.set_status("😀 APIトークンを読み込みました")
 
+        # プロンプト用の辞書の取得
+        self.prompt = self.load_dictionary()
+
+        if sys.flags.debug:
+            print(self.prompt)
+
         # ffmpegがインストールされているか確認
         self.check_ffmpeg_exists()
+
+    # 辞書ファイルを読み込んで、改行を半角スペースで連結し、一行の文字列として返す。
+    def load_dictionary(self) -> str | None:
+        prompt: str | None = self.config.get("DEFAULT", "prompt", fallback=None)
+        if prompt is None:
+            prompt = ""
+        else:
+            prompt = prompt.replace("\\n", "\n")
+
+        filename = self.config.get("DEFAULT", "dictionary", fallback="")
+
+        if filename == "":
+            return prompt
+
+        with open(filename, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            dictionary = "".join(lines).replace("\n", " ")
+
+        return prompt + dictionary
 
     def check_ffmpeg_exists(self):
         cmd = "ffmpeg"
         startupinfo = None
-        if os.name == "nt":  # Windowsの場合
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
+        # if os.name == "nt":  # Windowsの場合
+        #     startupinfo = subprocess.STARTUPINFO()
+        #     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        #     startupinfo.wShowWindow = subprocess.SW_HIDE
 
         result = subprocess.run(
-            ["where", cmd], capture_output=True, text=True, startupinfo=startupinfo
+            ["where", cmd],
+            capture_output=True,
+            text=True,
+            startupinfo=startupinfo,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
 
         # エラーレベル（exit code）を取得、0 ならffmpegが存在する / 1 なら存在しない
@@ -240,8 +266,9 @@ class TranscriptionApp:
         # 静音除去フラグを保存
         self.config["DEFAULT"]["flag_silence_removal"] = str(self.flag_silence_removal)
 
-        if self.prompt is not None:
-            self.config["DEFAULT"]["prompt"] = self.prompt.replace("\\n", "\n")
+        # プロンプトは保存しない（UI上で編集させない前提）
+        # if self.prompt is not None:
+        #     self.config["DEFAULT"]["prompt"] = self.prompt.replace("\\n", "\n")
 
         # 静音化ファイル保存フラグを保存
         self.config["DEFAULT"]["keep_silenced"] = str(self.keep_silence_removed)

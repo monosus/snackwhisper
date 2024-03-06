@@ -104,7 +104,11 @@ class WhisperTranscriptionCaller:
             "csv=p=0",
         ]
         duration = float(
-            subprocess.check_output(duration_command).decode("utf-8").strip()
+            subprocess.check_output(
+                duration_command, creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            .decode("utf-8")
+            .strip()
         )
 
         size = os.path.getsize(input_file)
@@ -124,7 +128,7 @@ class WhisperTranscriptionCaller:
             "-loglevel",
             "quiet",
         ]
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
 
         split_files = []
         for filename in os.listdir("work"):
