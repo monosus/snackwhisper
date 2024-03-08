@@ -14,9 +14,17 @@ class WhisperTranscriptionCaller:
         self.transcription = ""
         self.language = "ja"
         self.model = "whisper-1"
-        self.prompt = "こんにちは、本日は晴天です。"
+        self.prompt = """dictionaryを使って、音声を書き起こしてください。
+
+[dictionary]
+清音除去
+"""
 
         # self.client = OpenAI(api_key=api_key)
+
+    def set_prompt(self, prompt: str):
+        if prompt is not None:
+            self.prompt = prompt
 
     def transcribe_audio_files(
         self, audio_files: list[str], api_key: str | None = None
@@ -55,6 +63,8 @@ class WhisperTranscriptionCaller:
             return transcript
 
     def create_with_timestamp(self, file_handler):
+        print(self.prompt)
+
         transcript = self.client.audio.transcriptions.create(
             model=self.model,
             file=file_handler,
@@ -82,6 +92,12 @@ class WhisperTranscriptionCaller:
         return transcript.text
 
     def split_audio(self, input_file, max_size):
+        startupinfo = None
+        if os.name == "nt":  # Windowsの場合
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
         duration_command = [
             "ffprobe",
             "-i",
@@ -94,7 +110,13 @@ class WhisperTranscriptionCaller:
             "csv=p=0",
         ]
         duration = float(
-            subprocess.check_output(duration_command).decode("utf-8").strip()
+            subprocess.check_output(
+                duration_command,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                startupinfo=startupinfo,
+            )
+            .decode("utf-8")
+            .strip()
         )
 
         size = os.path.getsize(input_file)
@@ -114,7 +136,12 @@ class WhisperTranscriptionCaller:
             "-loglevel",
             "quiet",
         ]
-        subprocess.run(command, check=True)
+        subprocess.run(
+            command,
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            startupinfo=startupinfo,
+        )
 
         split_files = []
         for filename in os.listdir("work"):

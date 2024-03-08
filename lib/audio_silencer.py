@@ -13,19 +13,25 @@ class AudioSilencer:
         input_path,
     ):
         self.input_path = input_path
+        self.flag_silence_removal = True
 
+    # 音声ファイルから無音部分を除去
     def remove_silence_multiple(self, input_files: List[str], suffix="_silenced.mp3"):
         newfiles: List[str] = []
         for input_file in input_files:
             body = os.path.splitext(input_file)[0]
             newfile = body + suffix
+
             self.remove_silence(input_file, newfile)
             newfiles.append(newfile)
         return newfiles
 
     def remove_silence(self, input_path, output_path):
+
         # 音声ファイルを読み込み
+        # この中で2回cmd.exeのウィンドウが開かれている
         sound = AudioSegment.from_file(input_path)
+        # この後で1回cmd.exeのウィンドウが開かれている
 
         # 元の音声の長さを計算し、分単位で表示
         org_ms = len(sound)
@@ -50,6 +56,12 @@ class AudioSilencer:
             print("removed: {:.2f} [min]".format(org_ms / 60 / 1000))
 
     def extract_audio(self, input_file, output_file):
+        startupinfo = None
+        if os.name == "nt":  # Windowsの場合
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
         command = [
             "ffmpeg",
             "-i",
@@ -61,7 +73,12 @@ class AudioSilencer:
             "-loglevel",
             "quiet",
         ]
-        subprocess.run(command, check=True)
+        subprocess.run(
+            command,
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            startupinfo=startupinfo,
+        )
 
     def exec(self) -> List[str]:
 
@@ -71,12 +88,20 @@ class AudioSilencer:
         # # Extract audio from MP4 to MP3
         if sys.flags.debug:
             print("==== Extract audio from MP4 to MP3")
-        mp3_file = os.path.join(temp_dir, "audio.mp3")
+
+        # self.input_path のbody後ろに_audioe.mp3をつけたファイル名を作る
+        filename_audio = os.path.basename(self.input_path).split(".")[0] + "_audio.mp3"
+        mp3_file = os.path.join(temp_dir, filename_audio)
+
         self.extract_audio(self.input_path, mp3_file)
 
         if sys.flags.debug:
             print("==== remove silence part")
 
-        silenced_files = self.remove_silence_multiple([mp3_file])
+        # フラグを確認して静音部分を除去
+        if self.flag_silence_removal:
+            silenced_files = self.remove_silence_multiple([mp3_file])
+        else:
+            silenced_files = [mp3_file]
 
         return silenced_files

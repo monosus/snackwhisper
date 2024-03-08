@@ -1,5 +1,7 @@
 import configparser
 import os
+
+# import os
 import subprocess
 import sys
 
@@ -18,7 +20,7 @@ class TranscriptionApp:
 
     def __init__(self, window):
         self.config = configparser.ConfigParser()
-        self.config.read("config.ini")
+        self.config.read("config.ini", encoding="utf-8")
 
         self.window = window
         self.window.title("Snackゐsper")
@@ -44,6 +46,17 @@ class TranscriptionApp:
         self.main_frame = tk.Frame(self.window, padx=20, pady=20)
         self.main_frame.pack(expand=True, fill=tk.BOTH)
 
+        # 静音除去を実行するかどうかのフラグ
+        setting_flag_silence = self.config.get(
+            "DEFAULT", "flag_silence_removal", fallback="True"
+        )
+        self.flag_silence_removal: bool = setting_flag_silence == "True"
+
+        setting_keep_silence_removed = self.config.get(
+            "DEFAULT", "keep_silence_removed", fallback="False"
+        )
+        self.keep_silence_removed: bool = setting_keep_silence_removed == "True"
+
         self.create_widgets()
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -53,19 +66,49 @@ class TranscriptionApp:
         else:
             self.set_status("😀 APIトークンを読み込みました")
 
+        # プロンプト用の辞書の取得
+        self.prompt = self.load_dictionary()
+
+        if sys.flags.debug:
+            print(self.prompt)
+
         # ffmpegがインストールされているか確認
         self.check_ffmpeg_exists()
+
+    # 辞書ファイルを読み込んで、改行を半角スペースで連結し、一行の文字列として返す。
+    def load_dictionary(self) -> str | None:
+        prompt: str | None = self.config.get("DEFAULT", "prompt", fallback=None)
+        if prompt is None:
+            prompt = ""
+        else:
+            prompt = prompt.replace("\\n", "\n")
+
+        filename = self.config.get("DEFAULT", "dictionary", fallback="")
+
+        if filename == "":
+            return prompt
+
+        with open(filename, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            dictionary = "".join(lines).replace("\n", " ")
+
+        return prompt + dictionary
 
     def check_ffmpeg_exists(self):
         cmd = "ffmpeg"
         startupinfo = None
+
         if os.name == "nt":  # Windowsの場合
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
 
         result = subprocess.run(
-            ["where", cmd], capture_output=True, text=True, startupinfo=startupinfo
+            ["where", cmd],
+            capture_output=True,
+            text=True,
+            startupinfo=startupinfo,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
 
         # エラーレベル（exit code）を取得、0 ならffmpegが存在する / 1 なら存在しない
@@ -151,6 +194,17 @@ class TranscriptionApp:
         )
         timestamp_checkbox.grid(row=2, column=2, padx=5, pady=5)
 
+        # 静音除去チェックボックス
+        self.silence_removal_flag = tk.BooleanVar(value=self.flag_silence_removal)
+        self.silence_removal_checkbox = tk.Checkbutton(
+            file_frame,
+            text="静音除去",
+            variable=self.silence_removal_flag,
+            onvalue=True,
+            offvalue=False,
+        )
+        self.silence_removal_checkbox.grid(row=2, column=1, padx=5, pady=5)
+
         # ステータス表示エリア
         self.status_bar = tk.Label(
             self.window, text="😀 準備完了", bd=1, relief=tk.SUNKEN, anchor=tk.W
@@ -194,6 +248,8 @@ class TranscriptionApp:
         if api_token == "":
             return False
 
+        self.load_from_widgets()
+
         # APIトークンを保存
         token = self.api_token_entry.get()
         self.config["DEFAULT"]["API_TOKEN"] = token
@@ -209,7 +265,18 @@ class TranscriptionApp:
         # タイムスタンプフラグを保存
         self.config["DEFAULT"]["timestamp_flag"] = str(self.timestamp_flag.get())
 
-        with open("config.ini", "w") as configfile:
+        # 静音除去フラグを保存
+        self.config["DEFAULT"]["flag_silence_removal"] = str(self.flag_silence_removal)
+
+        # プロンプトは保存しない（UI上で編集させない前提）
+        # if self.prompt is not None:
+        #     self.config["DEFAULT"]["prompt"] = self.prompt.replace("\\n", "\n")
+
+        # 静音化ファイル保存フラグを保存
+        self.config["DEFAULT"]["keep_silenced"] = str(self.keep_silence_removed)
+
+        # 設定をファイルに書き込む
+        with open("config.ini", "w", encoding="UTF-8") as configfile:
             self.config.write(configfile)
 
         return True
@@ -229,18 +296,16 @@ class TranscriptionApp:
             self.set_status("😮‍💨 APIトークンが未設定です")
             return
 
+        # UIの情報を読み込む
+        self.load_from_widgets()
+
         # ファイルパスを取得
         file_path_display_content = self.file_path_display.get("1.0", tk.END)
         file_path = file_path_display_content.strip()
         timestamp = self.timestamp_flag.get()
 
-        # 実行直前にもAPIトークンを取得
-        self.api_token = self.config.get("DEFAULT", "api_token", fallback="")
-
-        controller = TranscriptionController(
-            self.api_token, file_path, timestamp_flag=timestamp
-        )
-        controller.set_status = self.set_status
+        # TranscriptionControllerを作成
+        controller = self.make_transcription_controller(file_path, timestamp)
 
         # APIトークンの有効性を確認
         if controller.check_api_token() is False:
@@ -252,7 +317,24 @@ class TranscriptionApp:
         self.set_status(f"😆 開始します: {filebody}", ButtonState.DISABLE)
 
         # 音声書き起こしを実行
-        controller.transcribe_audio()
+        controller.transcribe_audio(self.flag_silence_removal)
+
+    # TranscriptionControllerを作成
+    def make_transcription_controller(self, file_path, timestamp):
+        controller = TranscriptionController(
+            self.api_token, file_path, timestamp_flag=timestamp
+        )
+
+        # 設定ファイルに記載があれば静音除去ファイルの保存フラグを設定する
+        if self.config["DEFAULT"]["keep_silenced"] == "True":
+            controller.keep_silence_removed_files = True
+
+        if self.prompt is not None:
+            controller.set_prompt(self.prompt)
+
+        controller.set_status = self.set_status
+
+        return controller
 
     def on_closing(self):
         # アプリケーション終了時にAPIトークンを保存
@@ -268,6 +350,11 @@ class TranscriptionApp:
             self.set_status("😫 APIトークンが無効です")
         else:
             self.set_status(f"😫 エラーです: {message}")
+
+    # UIの情報を読み込む
+    def load_from_widgets(self):
+        self.api_token = self.api_token_entry.get()
+        self.flag_silence_removal = self.silence_removal_flag.get()
 
 
 # ウィンドウの作成とアプリケーションの開始
