@@ -2,24 +2,39 @@ import datetime
 import os
 import subprocess
 import sys
+import tempfile
 from openai import OpenAI
 
 
 class WhisperTranscriptionCaller:
-    def __init__(self, api_key, audio_files, timestamp_flag: bool):
+    def __init__(self, api_key, timestamp_flag: bool):
         self.api_key = api_key
-        self.audio_files = audio_files
         self.timestamp_flag = timestamp_flag
 
         self.transcription = ""
         self.language = "ja"
         self.model = "whisper-1"
-        self.prompt = "こんにちは、本日は晴天です。"
+        self.prompt = """dictionaryを使って、音声を書き起こしてください。
 
-        self.client = OpenAI(api_key=api_key)
+[dictionary]
+清音除去
+"""
 
-    def transcribe_audio_files(self):
-        for audio_file in self.audio_files:
+        # self.client = OpenAI(api_key=api_key)
+
+    def set_prompt(self, prompt: str):
+        if prompt is not None:
+            self.prompt = prompt
+
+    def transcribe_audio_files(
+        self, audio_files: list[str], api_key: str | None = None
+    ):
+        if api_key is None:
+            self.client = OpenAI(api_key=self.api_key)
+        else:
+            self.client = OpenAI(api_key=api_key)
+
+        for audio_file in audio_files:
             # # # Split audio if the file size is over the limit
             if sys.flags.debug:
                 print("==== split audio file")
@@ -48,6 +63,8 @@ class WhisperTranscriptionCaller:
             return transcript
 
     def create_with_timestamp(self, file_handler):
+        print(self.prompt)
+
         transcript = self.client.audio.transcriptions.create(
             model=self.model,
             file=file_handler,
@@ -75,6 +92,12 @@ class WhisperTranscriptionCaller:
         return transcript.text
 
     def split_audio(self, input_file, max_size):
+        startupinfo = None
+        if os.name == "nt":  # Windowsの場合
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
         duration_command = [
             "ffprobe",
             "-i",
@@ -87,7 +110,13 @@ class WhisperTranscriptionCaller:
             "csv=p=0",
         ]
         duration = float(
-            subprocess.check_output(duration_command).decode("utf-8").strip()
+            subprocess.check_output(
+                duration_command,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                startupinfo=startupinfo,
+            )
+            .decode("utf-8")
+            .strip()
         )
 
         size = os.path.getsize(input_file)
@@ -104,8 +133,15 @@ class WhisperTranscriptionCaller:
             "-acodec",
             "copy",
             "work/split-%03d.mp3",
+            "-loglevel",
+            "quiet",
         ]
-        subprocess.run(command, check=True)
+        subprocess.run(
+            command,
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            startupinfo=startupinfo,
+        )
 
         split_files = []
         for filename in os.listdir("work"):
@@ -113,3 +149,28 @@ class WhisperTranscriptionCaller:
                 split_files.append(os.path.join("work", filename))
 
         return sorted(split_files)
+
+    def check_api_token(self) -> bool:
+        # APIトークンの有効性を確認
+        self.client = OpenAI(api_key=self.api_key)
+
+        # テンポラリファイルを作成
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_file = os.path.join(temp_dir, "temp_file.wav")
+            with open(temp_file, "wb") as fh:
+                fh.write(b"")
+            with open(temp_file, "rb") as fh:
+                # APIキーの有効性を確認するために、簡単なAPIリクエストを行う
+                try:
+                    self.client.audio.transcriptions.create(
+                        model=self.model,
+                        file=fh,
+                        language=self.language,
+                        response_format="json",
+                    )
+                except Exception as e:
+                    if e.code == "invalid_api_key":  # type: ignore
+                        if sys.flags.debug:
+                            print("APIキーが無効です。エラーメッセージ:", e)
+                        return False
+        return True
