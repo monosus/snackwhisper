@@ -1,6 +1,7 @@
 import os
 import sys
 from typing import Callable
+from dev.lib.status_bar import StatusBar
 from lib.constants import ButtonState
 from lib.audio_silencer import AudioSilencer
 from lib.whisper_caller import WhisperTranscriptionCaller
@@ -25,7 +26,16 @@ class TranscriptionController:
         if prompt is not None:
             self.prompt = prompt
 
+    def set_stauts_bar(self, statusbar: StatusBar):
+        self.status_bar = statusbar
+
     def set_status(self, message: str, button_state: ButtonState = ButtonState.NONE):
+        """ステータスバーにメッセージを表示する
+
+        Args:
+            message (str): ステータスバーに表示するメッセージ
+            button_state (ButtonState, optional): ボタンの状態を指定します。デフォルトはButtonState.NONEです。
+        """
         if self.set_status_function is not None:
             self.set_status_function(message, button_state)
 
