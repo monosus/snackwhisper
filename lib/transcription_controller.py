@@ -1,7 +1,7 @@
 import os
 import sys
 from typing import Callable
-from dev.lib.status_bar import StatusBar
+from lib.status_bar import StatusBar
 from lib.constants import ButtonState
 from lib.audio_silencer import AudioSilencer
 from lib.whisper_caller import WhisperTranscriptionCaller

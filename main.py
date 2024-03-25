@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 import tkinter as tk
-from dev.lib.status_bar import StatusBar
+from lib.status_bar import StatusBar
 
 # from tkinter import ttk
 from tkinterdnd2 import TkinterDnD, DND_FILES
@@ -221,6 +221,10 @@ class TranscriptionApp:
         self.file_path_display.delete("1.0", tk.END)
         replaced = self.replace_irregular_char(event.data)
         self.file_path_display.insert(tk.END, replaced)
+
+        # replacedからファイル名の本体部分と拡張子を取り出す
+        filebody = replaced.split("/")[-1]
+        self.set_status(f"😀 ファイルを選択しました: {filebody}")
 
     # 入力テキストに\が含まれていれば/に変換し、{}を削除する
     def replace_irregular_char(self, text):
