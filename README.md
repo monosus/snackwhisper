@@ -1,10 +1,19 @@
-# 開発者向けREADME
+# 使い方
+
+## 読み方
+Snackゐsperは「すなっくうぃすぱぁ」と読みます。
 
 ## 概要
 SnackWhisperはWhisper APIを利用した音声書き起こしを実行します。
 `main.py`を実行して、音声ファイルをテキストに変換するウィンドウを呼び出してください。
 
     $ python main.py
+
+## ダウンロード
+pyinstallerを使ってexe化した[Windows用バイナリ](https://github.com/monosus/snackwhisper/tree/main/dist)も用意しています。
+
+β版につき、自己責任でご利用ください。
+
 
 ## 実行環境
 Windowsコマンドライン(cmd.exe)またはMacOSのシェルから実行可能です。
