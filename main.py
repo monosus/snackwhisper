@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 import tkinter as tk
+from lib.status_bar import StatusBar
 
 # from tkinter import ttk
 from tkinterdnd2 import TkinterDnD, DND_FILES
@@ -120,7 +121,7 @@ class TranscriptionApp:
 
     # ステータスバーの表示を変更
     def set_status(self, message, button_state=ButtonState.NONE):
-        self.status_bar.config(text=message)
+        self.status_bar.set_message(message)
 
         if button_state == ButtonState.RELEASE:
             # 実行ボタンを押せるように有効化する
@@ -206,18 +207,24 @@ class TranscriptionApp:
         self.silence_removal_checkbox.grid(row=2, column=1, padx=5, pady=5)
 
         # ステータス表示エリア
-        self.status_bar = tk.Label(
-            self.window, text="😀 準備完了", bd=1, relief=tk.SUNKEN, anchor=tk.W
-        )
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_bar = StatusBar(self.window, "😀 準備完了")
 
     def drop(self, event):
+        """
+        ドラッグアンドドロップイベントを処理し、ドロップされたファイルのパスをテキストエリアに表示します。
+
+        Args:
+            event: ドラッグアンドドロップイベントに関する情報を含むオブジェクト。
+        """
         if sys.flags.debug:
             print(event)
-        # ドロップされたファイルパスをテキストエリアに表示
         self.file_path_display.delete("1.0", tk.END)
         replaced = self.replace_irregular_char(event.data)
         self.file_path_display.insert(tk.END, replaced)
+
+        # replacedからファイル名の本体部分と拡張子を取り出す
+        filebody = replaced.split("/")[-1]
+        self.set_status(f"😀 ファイルを選択しました: {filebody}")
 
     # 入力テキストに\が含まれていれば/に変換し、{}を削除する
     def replace_irregular_char(self, text):
