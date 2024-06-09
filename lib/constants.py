@@ -6,3 +6,7 @@ class ButtonState(Enum):
     DISABLE = 0
     RELEASE = 1
     NONE = 2
+
+
+class DEFAULT_SETTINGS:
+    RESULT_ENCODING = "utf-8"
