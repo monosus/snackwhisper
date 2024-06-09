@@ -26,6 +26,11 @@ class TranscriptionApp:
         self.window = window
         self.window.title("Snackゐsper")
 
+        # config.inからエンコーディングを読み込む
+        self.result_encoding = self.config.get(
+            "DEFAULT", "result_encoding", fallback="utf-8"
+        )
+
         # ウィンドウの位置を復元
         x = self.config.get("DEFAULT", "x", fallback="100")
         y = self.config.get("DEFAULT", "y", fallback="100")
@@ -282,6 +287,9 @@ class TranscriptionApp:
         # 静音化ファイル保存フラグを保存
         self.config["DEFAULT"]["keep_silenced"] = str(self.keep_silence_removed)
 
+        # デフォルトエンコーディングを保存
+        self.config["DEFAULT"]["result_encoding"] = self.result_encoding
+
         # 設定をファイルに書き込む
         with open("config.ini", "w", encoding="UTF-8") as configfile:
             self.config.write(configfile)
@@ -313,6 +321,7 @@ class TranscriptionApp:
 
         # TranscriptionControllerを作成
         controller = self.make_transcription_controller(file_path, timestamp)
+        controller.result_encoding = self.result_encoding
 
         # APIトークンの有効性を確認
         if controller.check_api_token() is False:

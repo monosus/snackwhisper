@@ -2,7 +2,7 @@ import os
 import sys
 from typing import Callable
 from lib.status_bar import StatusBar
-from lib.constants import ButtonState
+from lib.constants import DEFAULT_SETTINGS, ButtonState
 from lib.audio_silencer import AudioSilencer
 from lib.whisper_caller import WhisperTranscriptionCaller
 from threading import Thread
@@ -19,6 +19,9 @@ class TranscriptionController:
         self.model = "whisper-1"
         self.prompt = None
         self.keep_silence_removed_files = False
+
+        # 出力エンコーディングのデフォルトを指定
+        self.result_encoding = DEFAULT_SETTINGS.RESULT_ENCODING
 
         self.set_status_function: Callable[[str, ButtonState], None] | None = None
 
@@ -110,7 +113,7 @@ class TranscriptionController:
         # Save transcription to TXT file
         if sys.flags.debug:
             print("==== Save transcription to TXT file")
-        with open(output_file_name, "w") as f:
+        with open(output_file_name, "w", encoding=self.result_encoding) as f:
             f.write(transcription)
 
         if sys.flags.debug:
