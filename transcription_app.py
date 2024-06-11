@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 import tkinter as tk
+from lib.debug_options import DebugOptions
 from lib.status_bar import StatusBar
 
 # from tkinter import ttk
@@ -62,6 +63,9 @@ class TranscriptionApp:
             "DEFAULT", "keep_silence_removed", fallback="False"
         )
         self.keep_silence_removed: bool = setting_keep_silence_removed == "True"
+
+        # デバッグ用のフラグをconfig.iniから読み込む
+        self.debug_options = DebugOptions(self.config)
 
         self.create_widgets()
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -315,13 +319,13 @@ class TranscriptionApp:
         self.load_from_widgets()
 
         # ファイルパスを取得
-        file_path_display_content = self.file_path_display.get("1.0", tk.END)
-        file_path = file_path_display_content.strip()
+        file_path = self.get_filepath()
         timestamp = self.timestamp_flag.get()
 
         # TranscriptionControllerを作成
         controller = self.make_transcription_controller(file_path, timestamp)
         controller.result_encoding = self.result_encoding
+        controller.set_debug_options(self.debug_options)
 
         # APIトークンの有効性を確認
         if controller.check_api_token() is False:
@@ -334,6 +338,11 @@ class TranscriptionApp:
 
         # 音声書き起こしを実行
         controller.transcribe_audio(self.flag_silence_removal)
+
+    def get_filepath(self):
+        file_path_display_content = self.file_path_display.get("1.0", tk.END)
+        file_path = file_path_display_content.strip()
+        return file_path
 
     # TranscriptionControllerを作成
     def make_transcription_controller(self, file_path, timestamp):
@@ -366,6 +375,14 @@ class TranscriptionApp:
             self.set_status("😫 APIトークンが無効です")
         else:
             self.set_status(f"😫 エラーです: {message}")
+            if self.debug_options.export_errorlog:
+                file_path = self.get_filepath()
+                TranscriptionController.output(
+                    file_path,
+                    transcription=message,
+                    encoding=self.result_encoding,
+                    postfix="_errorlog",
+                )
 
     # UIの情報を読み込む
     def load_from_widgets(self):
