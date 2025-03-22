@@ -49,6 +49,9 @@ class WhisperTranscriptionCaller:
         # コンソール出力
         self.console_out = options.console_out
 
+    def set_model(self, model: str):
+        self.model = model
+
     def set_prompt(self, prompt: str):
         if prompt is not None:
             self.prompt = prompt
@@ -66,8 +69,13 @@ class WhisperTranscriptionCaller:
             if sys.flags.debug:
                 print("==== split audio file")
 
-            if self.split_segment_sec > 0 or os.path.getsize(audio_file) > 20 * 1024 * 1024:    # 20MB以上のとき
-                cropped_files = self.split_audio(audio_file, 5 * 1024 * 1024)   # 5MBごとに分割
+            if (
+                self.split_segment_sec > 0
+                or os.path.getsize(audio_file) > 20 * 1024 * 1024
+            ):  # 20MB以上のとき
+                cropped_files = self.split_audio(
+                    audio_file, 5 * 1024 * 1024
+                )  # 5MBごとに分割
             else:
                 cropped_files = [audio_file]
 
@@ -82,8 +90,8 @@ class WhisperTranscriptionCaller:
 
     def transcribe_single_file(self, audio_file):
         if self.console_out:
-            print('transcribe_single_file(): ' + audio_file)
-        
+            print("transcribe_single_file(): " + audio_file)
+
         with open(str(audio_file), "rb") as f:
             if self.timestamp_flag:
                 self.create_with_timestamp(f)
@@ -97,7 +105,7 @@ class WhisperTranscriptionCaller:
 
     def create_with_timestamp(self, file_handler):
         if self.dry_run:
-            print('self.create_with_timestamp(): ')
+            print("self.create_with_timestamp(): ")
             transcript = SimpleNamespace()
             transcript.segments = [
                 {"start": 0, "end": 5, "text": "これはテストです。"},
@@ -116,14 +124,14 @@ class WhisperTranscriptionCaller:
         file_start_sec = self.transcription.last_timestamp_sec
 
         if self.console_out:
-            print('segments:' + str(transcript))
+            print("segments:" + str(transcript))
 
         result = ""
         begin_sec = self.transcription.last_timestamp_sec
         last_sec = 0
         for segment in transcript.segments:  # type: ignore
             if self.console_out:
-                print('create_with_timestamp(): ' + str(segment))
+                print("create_with_timestamp(): " + str(segment))
 
             text = segment["text"]
             endsec = file_start_sec + int(segment["start"])
@@ -138,10 +146,8 @@ class WhisperTranscriptionCaller:
     def create(self, file_handler):
 
         if self.dry_run:
-            print('self.create_with_timestamp(): ')
-            transcript = {
-                "text": "これはテストです。"
-            }
+            print("self.create_with_timestamp(): ")
+            transcript = {"text": "これはテストです。"}
         else:
             transcript = self.client.audio.transcriptions.create(
                 model=self.model,

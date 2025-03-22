@@ -17,7 +17,11 @@ class TranscriptionController:
 
         self.transcription = ""
         self.language = "ja"
-        self.model = "whisper-1"
+        self.model = (
+            # "whisper-1"  # ・gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1
+            "gpt-4o-mini-transcribe"  # ・gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1
+            # "gpt-4o-transcribe"  # ・gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1
+        )
         self.prompt = None
         self.keep_silence_removed_files = False
 
@@ -88,10 +92,17 @@ class TranscriptionController:
 
             silenced_files: list[str] = []
             if self.dry_run:
-                return self.output(self.audio_file, transcription="Dry Run", postfix="_dryrun", encoding=self.result_encoding)
+                return self.output(
+                    self.audio_file,
+                    transcription="Dry Run",
+                    postfix="_dryrun",
+                    encoding=self.result_encoding,
+                )
             else:
                 silencer = AudioSilencer(self.audio_file)
-                silencer.flag_silence_removal = flag_silence_removal  # 静音除去フラグを設定
+                silencer.flag_silence_removal = (
+                    flag_silence_removal  # 静音除去フラグを設定
+                )
                 silenced_files = silencer.exec()
 
                 if self.keep_silence_removed_files:
@@ -100,7 +111,9 @@ class TranscriptionController:
                     for silenced_file in silenced_files:
                         copy_file(silenced_file, input_file_path)
 
-            self.set_status("😇 WhisperAPIを呼び出しています…")
+            self.transcriptor.set_model(self.model)
+            msg = f"😇 WhisperAPI (model: {self.model}) を呼び出しています…"
+            self.set_status(msg)
             transcription = self.transcriptor.transcribe_audio_files(silenced_files)
 
             # return self.output(transcription=transcription)
