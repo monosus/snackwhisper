@@ -215,6 +215,15 @@ class TranscriptionApp:
         )
         self.silence_removal_checkbox.grid(row=2, column=1, padx=5, pady=5)
 
+        # モデル選択ドロップダウン
+        # model_label = tk.Label(file_frame, text="model:", width=10)
+        # model_label.grid(row=2, column=0, padx=5, pady=5)
+        self.model_var = tk.StringVar(value="gpt-4o-mini-transcribe")
+        model_options = ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"]
+        model_dropdown = tk.OptionMenu(file_frame, self.model_var, *model_options)
+        model_dropdown.grid(row=2, column=0, padx=5, pady=5)
+        self.model_var.set("gpt-4o-mini-transcribe")
+
         # ステータス表示エリア
         self.status_bar = StatusBar(self.window, "😀 準備完了")
 
