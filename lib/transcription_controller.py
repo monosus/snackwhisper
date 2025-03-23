@@ -1,6 +1,7 @@
 import os
 import sys
 from typing import Callable
+from lib.debug_options import DebugOptions
 from lib.status_bar import StatusBar
 from lib.constants import DEFAULT_SETTINGS, ButtonState
 from lib.audio_silencer import AudioSilencer
@@ -16,14 +17,28 @@ class TranscriptionController:
 
         self.transcription = ""
         self.language = "ja"
-        self.model = "whisper-1"
+        self.model = (
+            # "whisper-1"  # ・gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1
+            "gpt-4o-mini-transcribe"  # ・gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1
+            # "gpt-4o-transcribe"  # ・gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1
+        )
         self.prompt = None
         self.keep_silence_removed_files = False
 
         # 出力エンコーディングのデフォルトを指定
         self.result_encoding = DEFAULT_SETTINGS.RESULT_ENCODING
-
         self.set_status_function: Callable[[str, ButtonState], None] | None = None
+        self.debug_options = DebugOptions()
+
+    def set_debug_options(self, options: DebugOptions):
+        self.debug_options = options
+
+        # エラーの際にテキストファイルを出力する
+        self.export_errorlog = options.export_errorlog
+
+        # 音声ファイルを分割する秒数（0のときは内部で算出する）
+        self.split_segment_sec: int = options.split_segment_sec
+        self.dry_run = options.dry_run
 
     def set_prompt(self, prompt: str):
         if prompt is not None:
@@ -54,6 +69,14 @@ class TranscriptionController:
                     saved_file = silence_and_transcribe()
             except Exception as e:
                 self.set_status(f"😫 エラーです: {e}", ButtonState.RELEASE)
+                if self.export_errorlog:
+                    self.output(
+                        self.audio_file,
+                        transcription=str(e),
+                        encoding=self.result_encoding,
+                        postfix="_errorlog",
+                    )
+
                 if sys.flags.debug:
                     print(e)
                 return
@@ -66,20 +89,39 @@ class TranscriptionController:
         # 音声抽出と静音除去を実行
         def silence_and_transcribe():
             self.set_status("😇 音声抽出と静音除去を処理しています…")
-            silencer = AudioSilencer(self.audio_file)
-            silencer.flag_silence_removal = flag_silence_removal  # 静音除去フラグを設定
-            silenced_files = silencer.exec()
 
-            if self.keep_silence_removed_files:
-                # silenced_filesをすべて入力ファイルと同じディレクトリにコピーする
-                input_file_path = os.path.dirname(self.audio_file)
-                for silenced_file in silenced_files:
-                    copy_file(silenced_file, input_file_path)
+            silenced_files: list[str] = []
+            if self.dry_run:
+                return self.output(
+                    self.audio_file,
+                    transcription="Dry Run",
+                    postfix="_dryrun",
+                    encoding=self.result_encoding,
+                )
+            else:
+                silencer = AudioSilencer(self.audio_file)
+                silencer.flag_silence_removal = (
+                    flag_silence_removal  # 静音除去フラグを設定
+                )
+                silenced_files = silencer.exec()
 
-            self.set_status("😇 WhisperAPIを呼び出しています…")
+                if self.keep_silence_removed_files:
+                    # silenced_filesをすべて入力ファイルと同じディレクトリにコピーする
+                    input_file_path = os.path.dirname(self.audio_file)
+                    for silenced_file in silenced_files:
+                        copy_file(silenced_file, input_file_path)
+
+            self.transcriptor.set_model(self.model)
+            msg = f"😇 WhisperAPI (model: {self.model}) を呼び出しています…"
+            self.set_status(msg)
             transcription = self.transcriptor.transcribe_audio_files(silenced_files)
 
-            return self.output(transcription=transcription)
+            # return self.output(transcription=transcription)
+            return self.output(
+                self.audio_file,
+                transcription=transcription.transcription,
+                encoding=self.result_encoding,
+            )
 
         # Windows / Mac / Linuxでのファイルコピー処理
         def copy_file(src: str, dst: str):
@@ -102,18 +144,21 @@ class TranscriptionController:
         thread = Thread(target=handling_transcribe_audio)
         thread.start()
 
-    def output(self, transcription: str):
+    @staticmethod
+    def output(
+        audio_file, transcription: str, encoding: str = "UTF-8", postfix: str = ""
+    ):
         # 文字起こしの保存設定
-        input_file_path = os.path.dirname(self.audio_file)
-        input_file_body = os.path.basename(os.path.splitext(self.audio_file)[0])
+        input_file_path = os.path.dirname(audio_file)
+        input_file_body = os.path.basename(os.path.splitext(audio_file)[0])
         output_file_name = os.path.join(
-            input_file_path, input_file_body.replace(".", "_") + ".txt"
+            input_file_path, input_file_body.replace(".", "_") + postfix + ".txt"
         )
 
         # Save transcription to TXT file
         if sys.flags.debug:
             print("==== Save transcription to TXT file")
-        with open(output_file_name, "w", encoding=self.result_encoding) as f:
+        with open(output_file_name, "w", encoding=encoding) as f:
             f.write(transcription)
 
         if sys.flags.debug:
@@ -126,6 +171,7 @@ class TranscriptionController:
         self.transcriptor = WhisperTranscriptionCaller(
             self.api_key, self.timestamp_flag
         )
+        self.transcriptor.set_options(self.debug_options)
 
         if self.prompt is not None:
             self.transcriptor.set_prompt(self.prompt)
