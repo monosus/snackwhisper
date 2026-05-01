@@ -1,7 +1,5 @@
 import configparser
 import os
-
-# import os
 import subprocess
 import sys
 
@@ -9,13 +7,14 @@ import tkinter as tk
 from lib.debug_options import DebugOptions
 from lib.status_bar import StatusBar
 
-# from tkinter import ttk
 from tkinterdnd2 import DND_FILES
 
-from tkinter import filedialog
+from tkinter import filedialog, messagebox, ttk
 from lib.my_icon import get_photo_image4icon
 from lib.transcription_controller import TranscriptionController
 from lib.constants import ButtonState
+from lib.model_profile import ProfileRegistry
+from lib.settings_dialog import SettingsDialog
 
 
 class TranscriptionApp:
@@ -27,33 +26,26 @@ class TranscriptionApp:
         self.window = window
         self.window.title("Snackゐsper")
 
-        # config.inからエンコーディングを読み込む
         self.result_encoding = self.config.get(
             "DEFAULT", "result_encoding", fallback="utf-8"
         )
 
-        # ウィンドウの位置を復元
         x = self.config.get("DEFAULT", "x", fallback="100")
         y = self.config.get("DEFAULT", "y", fallback="100")
         self.window.geometry(f"+{x}+{y}")
 
-        # ウィンドウのサイズを復元
         width = self.config.get("DEFAULT", "width", fallback="600")
         height = self.config.get("DEFAULT", "height", fallback="220")
         self.window.geometry(f"{width}x{height}")
 
-        # ウィンドウサイズを変更できないようにする
         self.window.resizable(False, False)
 
-        # タイムスタンプフラグを復元
         timestamp_flag = self.config.get("DEFAULT", "timestamp_flag", fallback="False")
         self.saved_timestamp_flag = timestamp_flag == "True"
 
-        # 全体を包含するフレームにパディングを追加
         self.main_frame = tk.Frame(self.window, padx=20, pady=20)
         self.main_frame.pack(expand=True, fill=tk.BOTH)
 
-        # 静音除去を実行するかどうかのフラグ
         setting_flag_silence = self.config.get(
             "DEFAULT", "flag_silence_removal", fallback="True"
         )
@@ -64,28 +56,24 @@ class TranscriptionApp:
         )
         self.keep_silence_removed: bool = setting_keep_silence_removed == "True"
 
-        # デバッグ用のフラグをconfig.iniから読み込む
         self.debug_options = DebugOptions(self.config)
+
+        # モデルプロファイルを読み込む（旧 api_token があれば自動で1件移行される）
+        self.profile_registry = ProfileRegistry.load(self.config)
 
         self.create_widgets()
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        self.api_token = self.config.get("DEFAULT", "api_token", fallback="")
-        if self.api_token == "":
-            self.set_status("😗 APIトークンが未設定です")
-        else:
-            self.set_status("😀 APIトークンを読み込みました")
+        self._refresh_profile_dropdown()
+        self._update_status_for_selected_profile()
 
-        # プロンプト用の辞書の取得
         self.prompt = self.load_dictionary()
 
         if sys.flags.debug:
             print(self.prompt)
 
-        # ffmpegがインストールされているか確認
         self.check_ffmpeg_exists()
 
-    # 辞書ファイルを読み込んで、改行を半角スペースで連結し、一行の文字列として返す。
     def load_dictionary(self) -> str | None:
         prompt: str | None = self.config.get("DEFAULT", "prompt", fallback=None)
         if prompt is None:
@@ -108,7 +96,7 @@ class TranscriptionApp:
         cmd = "ffmpeg"
         startupinfo = None
 
-        if os.name == "nt":  # Windowsの場合
+        if os.name == "nt":
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -121,56 +109,52 @@ class TranscriptionApp:
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
 
-        # エラーレベル（exit code）を取得、0 ならffmpegが存在する / 1 なら存在しない
-        error_level = result.returncode
-        if error_level == 0:
-            self.ffmpeg_installed = True
-        else:
-            self.ffmpeg_installed = False
+        self.ffmpeg_installed = result.returncode == 0
 
-    # ステータスバーの表示を変更
     def set_status(self, message, button_state=ButtonState.NONE):
         self.status_bar.set_message(message)
 
         if button_state == ButtonState.RELEASE:
-            # 実行ボタンを押せるように有効化する
             self.transcribe_button.config(state=tk.NORMAL)
         elif button_state == ButtonState.DISABLE:
-            # 実行ボタンを押せないように無効化する
             self.transcribe_button.config(state=tk.DISABLED)
 
-        # ウィンドウをリフレッシュ
         self.window.update()
 
     def create_widgets(self):
         label_width = 20
 
-        # アプリケーションアイコンの設
         try:
             icon = get_photo_image4icon()
             self.window.iconphoto(False, icon)
         except tk.TclError:
             self.set_status("😫 アイコンの読み込みに失敗しました")
 
-        # APIトークン入力フィールド
-        token_frame = tk.Frame(self.main_frame)
-        token_frame.pack(anchor="w")
+        # モデル選択行
+        profile_frame = tk.Frame(self.main_frame)
+        profile_frame.pack(anchor="w")
 
-        api_token_label = tk.Label(
-            token_frame, text="WhisperAPI Token:", width=label_width
+        tk.Label(profile_frame, text="使用モデル:", width=label_width).grid(
+            row=0, column=0, padx=5, pady=5
         )
-        api_token_label.grid(row=0, column=0, padx=5, pady=5)
 
-        # APIトークン入力エリア
-        self.api_token_entry = tk.Entry(token_frame, width=50, font=("Arial", 8))
-        self.api_token_entry.insert(0, self.config["DEFAULT"].get("api_token", ""))
-        self.api_token_entry.grid(row=0, column=1, padx=5, pady=5, columnspan=2)
+        self.profile_var = tk.StringVar()
+        self.profile_dropdown = ttk.Combobox(
+            profile_frame,
+            textvariable=self.profile_var,
+            state="readonly",
+            width=40,
+        )
+        self.profile_dropdown.grid(row=0, column=1, padx=5, pady=5)
 
-        # ファイルパス表示エリアと選択ボタンのフレーム
+        tk.Button(
+            profile_frame, text="設定...", width=8, command=self.open_settings
+        ).grid(row=0, column=2, padx=5, pady=5)
+
+        # ファイル選択行
         file_frame = tk.Frame(self.main_frame)
         file_frame.pack()
 
-        # ファイル選択ボタン
         select_file_button = tk.Button(
             file_frame,
             text="ファイルを選択",
@@ -179,7 +163,6 @@ class TranscriptionApp:
         )
         select_file_button.grid(row=1, column=0, padx=5, pady=5)
 
-        # ファイルパス表示エリア
         self.file_path_display = tk.Text(
             file_frame, height=1, width=50, font=("Arial", 8)
         )
@@ -187,13 +170,11 @@ class TranscriptionApp:
         self.file_path_display.dnd_bind("<<Drop>>", self.drop)  # type: ignore
         self.file_path_display.grid(row=1, column=1, padx=5, pady=5, columnspan=2)
 
-        # 実行ボタン（横長にサイズ変更）
         self.transcribe_button = tk.Button(
             file_frame, text="実行", command=self.run_transcribe, width=label_width
         )
         self.transcribe_button.grid(row=3, column=1, padx=5, pady=5)
 
-        # タイムスタンプチェックボックス
         self.timestamp_flag = tk.BooleanVar(value=self.saved_timestamp_flag)
         timestamp_checkbox = tk.Checkbutton(
             file_frame,
@@ -204,7 +185,6 @@ class TranscriptionApp:
         )
         timestamp_checkbox.grid(row=2, column=2, padx=5, pady=5)
 
-        # 静音除去チェックボックス
         self.silence_removal_flag = tk.BooleanVar(value=self.flag_silence_removal)
         self.silence_removal_checkbox = tk.Checkbutton(
             file_frame,
@@ -215,45 +195,53 @@ class TranscriptionApp:
         )
         self.silence_removal_checkbox.grid(row=2, column=1, padx=5, pady=5)
 
-        # モデル選択ドロップダウン
-        # model_label = tk.Label(file_frame, text="model:", width=10)
-        # model_label.grid(row=2, column=0, padx=5, pady=5)
-        self.model_var = tk.StringVar(value="gpt-4o-mini-transcribe")
-        model_options = ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"]
-        model_dropdown = tk.OptionMenu(file_frame, self.model_var, *model_options)
-        model_dropdown.grid(row=2, column=0, padx=5, pady=5)
-        self.model_var.set("gpt-4o-mini-transcribe")
-
-        # ステータス表示エリア
         self.status_bar = StatusBar(self.window, "😀 準備完了")
 
-    def drop(self, event):
-        """
-        ドラッグアンドドロップイベントを処理し、ドロップされたファイルのパスをテキストエリアに表示します。
+    def _refresh_profile_dropdown(self):
+        names = self.profile_registry.names()
+        self.profile_dropdown["values"] = names
 
-        Args:
-            event: ドラッグアンドドロップイベントに関する情報を含むオブジェクト。
-        """
+        if names:
+            current = self.profile_registry.selected if self.profile_registry.selected in names else names[0]
+            self.profile_var.set(current)
+        else:
+            self.profile_var.set("")
+
+    def _update_status_for_selected_profile(self):
+        profile = self.profile_registry.selected_profile()
+        if profile is None or not profile.api_key:
+            self.set_status("😗 設定からモデルとAPIキーを登録してください")
+        else:
+            self.set_status(f"😀 モデル「{profile.name}」を読み込みました")
+
+    def open_settings(self):
+        SettingsDialog(self.window, self.profile_registry, on_save=self._on_settings_saved)
+
+    def _on_settings_saved(self, registry: ProfileRegistry):
+        self.profile_registry = registry
+        self._refresh_profile_dropdown()
+        # 旧 selected が消えていたら現在の選択値で更新
+        self.profile_registry.select(self.profile_var.get() or None)
+        self._update_status_for_selected_profile()
+        self.save_settings(persist_only=True)
+
+    def drop(self, event):
         if sys.flags.debug:
             print(event)
         self.file_path_display.delete("1.0", tk.END)
         replaced = self.replace_irregular_char(event.data)
         self.file_path_display.insert(tk.END, replaced)
 
-        # replacedからファイル名の本体部分と拡張子を取り出す
         filebody = replaced.split("/")[-1]
         self.set_status(f"😀 ファイルを選択しました: {filebody}")
 
-    # 入力テキストに\が含まれていれば/に変換し、{}を削除する
     def replace_irregular_char(self, text):
         text = text.replace("\\", "/")
         text = text.replace("{", "")
         text = text.replace("}", "")
         return text
 
-    # ファイル選択ダイアログを開く
     def open_file_dialog(self):
-
         filetypes = [
             ("メディアファイル", "*.mp3"),
             ("メディアファイル", "*.wav"),
@@ -268,48 +256,32 @@ class TranscriptionApp:
             self.file_path_display.delete("1.0", tk.END)
             self.file_path_display.insert(tk.END, file_path)
 
-    def save_settings(self):
-        api_token = self.api_token_entry.get()
-        if api_token == "":
-            return False
+    def save_settings(self, persist_only: bool = False) -> bool:
+        if not persist_only:
+            self.load_from_widgets()
 
-        self.load_from_widgets()
-
-        # APIトークンを保存
-        token = self.api_token_entry.get()
-        self.config["DEFAULT"]["API_TOKEN"] = token
-
-        # ウィンドウ位置を保存
+        # ウィンドウ位置・サイズ
         self.config["DEFAULT"]["x"] = str(self.window.winfo_x())
         self.config["DEFAULT"]["y"] = str(self.window.winfo_y())
-
-        # ウィンドウのサイズを保存
         self.config["DEFAULT"]["width"] = str(self.window.winfo_width())
         self.config["DEFAULT"]["height"] = str(self.window.winfo_height())
 
-        # タイムスタンプフラグを保存
         self.config["DEFAULT"]["timestamp_flag"] = str(self.timestamp_flag.get())
-
-        # 静音除去フラグを保存
         self.config["DEFAULT"]["flag_silence_removal"] = str(self.flag_silence_removal)
-
-        # プロンプトは保存しない（UI上で編集させない前提）
-        # if self.prompt is not None:
-        #     self.config["DEFAULT"]["prompt"] = self.prompt.replace("\\n", "\n")
-
-        # 静音化ファイル保存フラグを保存
         self.config["DEFAULT"]["keep_silenced"] = str(self.keep_silence_removed)
-
-        # デフォルトエンコーディングを保存
         self.config["DEFAULT"]["result_encoding"] = self.result_encoding
 
-        # 設定をファイルに書き込む
+        # 選択中プロファイルを反映してから保存
+        selected_name = self.profile_var.get().strip()
+        if selected_name:
+            self.profile_registry.select(selected_name)
+        self.profile_registry.save(self.config)
+
         with open("config.ini", "w", encoding="UTF-8") as configfile:
             self.config.write(configfile)
 
         return True
 
-    # 音声書き起こしを実行
     def run_transcribe(self):
         if self.ffmpeg_installed is False:
             self.set_status("😮 ffmpegをインストールしてください")
@@ -319,33 +291,36 @@ class TranscriptionApp:
             self.set_status("😮 ファイルが未選択です")
             return
 
-        # APIトークンを保存
-        if self.save_settings() is False:
-            self.set_status("😮‍💨 APIトークンが未設定です")
+        selected_name = self.profile_var.get().strip()
+        if not selected_name:
+            self.set_status("😮 設定からモデルを登録してください")
+            messagebox.showwarning("モデル未設定", "「設定...」からモデルとAPIキーを登録してください。", parent=self.window)
             return
 
-        # UIの情報を読み込む
+        self.profile_registry.select(selected_name)
+        profile = self.profile_registry.selected_profile()
+        if profile is None or not profile.api_key:
+            self.set_status("😮‍💨 選択されたモデルのAPIキーが未設定です")
+            return
+
+        self.save_settings()
+
         self.load_from_widgets()
 
-        # ファイルパスを取得
         file_path = self.get_filepath()
         timestamp = self.timestamp_flag.get()
 
-        # TranscriptionControllerを作成
-        controller = self.make_transcription_controller(file_path, timestamp)
+        controller = self.make_transcription_controller(profile, file_path, timestamp)
         controller.result_encoding = self.result_encoding
         controller.set_debug_options(self.debug_options)
 
-        # APIトークンの有効性を確認
         if controller.check_api_token() is False:
             self.set_status("😮‍💨 APIトークンが無効です")
             return
 
-        # ファイル名を取得してステータスバーに表示
         filebody = file_path.split("/")[-1]
         self.set_status(f"😆 開始します: {filebody}", ButtonState.DISABLE)
 
-        # 音声書き起こしを実行
         controller.transcribe_audio(self.flag_silence_removal)
 
     def get_filepath(self):
@@ -353,31 +328,25 @@ class TranscriptionApp:
         file_path = file_path_display_content.strip()
         return file_path
 
-    # TranscriptionControllerを作成
-    def make_transcription_controller(self, file_path, timestamp):
-        controller = TranscriptionController(
-            self.api_token, file_path, timestamp_flag=timestamp
-        )
+    def make_transcription_controller(self, profile, file_path, timestamp):
+        controller = TranscriptionController(profile, file_path, timestamp_flag=timestamp)
 
-        # 設定ファイルに記載があれば静音除去ファイルの保存フラグを設定する
-        if self.config["DEFAULT"]["keep_silenced"] == "True":
+        if self.config["DEFAULT"].get("keep_silenced", "False") == "True":
             controller.keep_silence_removed_files = True
 
         if self.prompt is not None:
             controller.set_prompt(self.prompt)
 
-        controller.set_status = self.set_status
+        controller.set_status_function = self.set_status
 
         return controller
 
     def on_closing(self):
-        # アプリケーション終了時にAPIトークンを保存
         self.save_settings()
         self.window.destroy()
 
     def error_process(self, error):
         status_code = error.status_code
-        # code = error.code # 'invalid_api_key' などが入る
         message = error.body["message"]
 
         if status_code == 401:
@@ -393,7 +362,5 @@ class TranscriptionApp:
                     postfix="_errorlog",
                 )
 
-    # UIの情報を読み込む
     def load_from_widgets(self):
-        self.api_token = self.api_token_entry.get()
         self.flag_silence_removal = self.silence_removal_flag.get()
