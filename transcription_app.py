@@ -14,6 +14,12 @@ from lib.my_icon import get_photo_image4icon
 from lib.transcription_controller import TranscriptionController
 from lib.constants import ButtonState
 from lib.model_profile import ProfileRegistry
+from lib.output_options import (
+    OUTPUT_FORMATS,
+    SUBTITLE_CAPABLE_MODELS,
+    FORMAT_TXT,
+    OutputOptions,
+)
 from lib.settings_dialog import SettingsDialog
 
 
@@ -34,14 +40,15 @@ class TranscriptionApp:
         y = self.config.get("DEFAULT", "y", fallback="100")
         self.window.geometry(f"+{x}+{y}")
 
-        width = self.config.get("DEFAULT", "width", fallback="600")
-        height = self.config.get("DEFAULT", "height", fallback="220")
+        width = self.config.get("DEFAULT", "width", fallback="780")
+        height = self.config.get("DEFAULT", "height", fallback="300")
         self.window.geometry(f"{width}x{height}")
 
-        self.window.resizable(False, False)
+        self.window.resizable(True, True)
+        self.window.minsize(640, 260)
 
-        timestamp_flag = self.config.get("DEFAULT", "timestamp_flag", fallback="False")
-        self.saved_timestamp_flag = timestamp_flag == "True"
+        self.output_options = OutputOptions.load(self.config)
+        self.saved_timestamp_flag = self.output_options.timestamp
 
         self.main_frame = tk.Frame(self.window, padx=20, pady=20)
         self.main_frame.pack(expand=True, fill=tk.BOTH)
@@ -65,6 +72,7 @@ class TranscriptionApp:
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self._refresh_profile_dropdown()
+        self._sync_option_states()
         self._update_status_for_selected_profile()
 
         self.prompt = self.load_dictionary()
@@ -146,6 +154,7 @@ class TranscriptionApp:
             width=40,
         )
         self.profile_dropdown.grid(row=0, column=1, padx=5, pady=5)
+        self.profile_dropdown.bind("<<ComboboxSelected>>", self._on_profile_change)
 
         tk.Button(
             profile_frame, text="設定...", width=8, command=self.open_settings
@@ -195,7 +204,109 @@ class TranscriptionApp:
         )
         self.silence_removal_checkbox.grid(row=2, column=1, padx=5, pady=5)
 
+        # 出力オプション行
+        output_frame = tk.LabelFrame(self.main_frame, text="出力オプション", padx=8, pady=4)
+        output_frame.pack(anchor="w", fill=tk.X, pady=(8, 0))
+
+        tk.Label(output_frame, text="形式:").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+        self.output_format_var = tk.StringVar(value=self.output_options.output_format)
+        self.output_format_combo = ttk.Combobox(
+            output_frame,
+            textvariable=self.output_format_var,
+            values=OUTPUT_FORMATS,
+            state="readonly",
+            width=6,
+        )
+        self.output_format_combo.grid(row=0, column=1, padx=4, pady=2, sticky="w")
+        self.output_format_combo.bind("<<ComboboxSelected>>", self._on_format_change)
+
+        self.speaker_var = tk.BooleanVar(value=self.output_options.speaker_diarization)
+        self.speaker_checkbox = tk.Checkbutton(
+            output_frame, text="話者識別 (Gemini)", variable=self.speaker_var
+        )
+        self.speaker_checkbox.grid(row=0, column=2, padx=8, pady=2, sticky="w")
+
+        self.structured_var = tk.BooleanVar(value=self.output_options.structured)
+        self.structured_checkbox = tk.Checkbutton(
+            output_frame, text="章立て + Markdown (Gemini)", variable=self.structured_var
+        )
+        self.structured_checkbox.grid(row=0, column=3, padx=8, pady=2, sticky="w")
+
+        self.summary_var = tk.BooleanVar(value=self.output_options.summary)
+        self.summary_checkbox = tk.Checkbutton(
+            output_frame, text="要約・TODO付与 (Gemini)", variable=self.summary_var
+        )
+        self.summary_checkbox.grid(row=0, column=4, padx=8, pady=2, sticky="w")
+
         self.status_bar = StatusBar(self.window, "😀 準備完了")
+
+    def _on_format_change(self, _event=None):
+        """字幕形式を選んだら、対応モデルが選択中か警告（バリデーションは実行時に行う）"""
+        fmt = self.output_format_var.get()
+        if fmt == FORMAT_TXT:
+            return
+        profile = self.profile_registry.find(self.profile_var.get())
+        if profile is None:
+            return
+        if profile.model not in SUBTITLE_CAPABLE_MODELS:
+            self.set_status(
+                f"⚠ {fmt.upper()}形式は whisper-1 のみ対応です（実行時にエラーになります）"
+            )
+
+    def _on_profile_change(self, _event=None):
+        self._sync_option_states()
+
+    def _sync_option_states(self):
+        """選択中プロファイルに応じて出力オプションのウィジェットを有効/無効にする"""
+        profile = self.profile_registry.find(self.profile_var.get())
+        is_google = profile is not None and profile.provider == "google"
+        subtitle_capable = profile is not None and profile.model in SUBTITLE_CAPABLE_MODELS
+
+        # 字幕形式（SRT/VTT）は whisper-1 のみ。それ以外では候補から除外し、
+        # 既に選択されていた場合は txt に戻す
+        allowed_formats = list(OUTPUT_FORMATS) if subtitle_capable else [FORMAT_TXT]
+        self.output_format_combo.config(values=allowed_formats)
+        if self.output_format_var.get() not in allowed_formats:
+            self.output_format_var.set(FORMAT_TXT)
+
+        # Gemini限定オプションは google プロバイダ以外でグレーアウト
+        gemini_state = "normal" if is_google else "disabled"
+        self.speaker_checkbox.config(state=gemini_state)
+        self.structured_checkbox.config(state=gemini_state)
+        self.summary_checkbox.config(state=gemini_state)
+
+    def _collect_output_options(self) -> OutputOptions:
+        return OutputOptions(
+            output_format=self.output_format_var.get() or FORMAT_TXT,
+            timestamp=self.timestamp_flag.get(),
+            speaker_diarization=self.speaker_var.get(),
+            structured=self.structured_var.get(),
+            summary=self.summary_var.get(),
+        )
+
+    def _validate_output_options(self, profile, options: OutputOptions) -> str | None:
+        """組み合わせの妥当性を確認。問題があれば警告メッセージを返す"""
+        if options.is_subtitle() and profile.model not in SUBTITLE_CAPABLE_MODELS:
+            return (
+                f"{options.output_format.upper()} 形式は whisper-1 のみ対応です。"
+                f"現在のモデル「{profile.model}」では生成できません。"
+            )
+
+        gemini_only_flags = []
+        if options.speaker_diarization:
+            gemini_only_flags.append("話者識別")
+        if options.structured:
+            gemini_only_flags.append("章立て + Markdown")
+        if options.summary:
+            gemini_only_flags.append("要約・TODO付与")
+
+        if gemini_only_flags and profile.provider != "google":
+            return (
+                "次のオプションは Gemini プロバイダ専用です: "
+                + ", ".join(gemini_only_flags)
+                + f"\n現在のプロバイダ「{profile.provider}」では無視されます。続行しますか？"
+            )
+        return None
 
     def _refresh_profile_dropdown(self):
         names = self.profile_registry.names()
@@ -222,6 +333,7 @@ class TranscriptionApp:
         self._refresh_profile_dropdown()
         # 旧 selected が消えていたら現在の選択値で更新
         self.profile_registry.select(self.profile_var.get() or None)
+        self._sync_option_states()
         self._update_status_for_selected_profile()
         self.save_settings(persist_only=True)
 
@@ -266,10 +378,12 @@ class TranscriptionApp:
         self.config["DEFAULT"]["width"] = str(self.window.winfo_width())
         self.config["DEFAULT"]["height"] = str(self.window.winfo_height())
 
-        self.config["DEFAULT"]["timestamp_flag"] = str(self.timestamp_flag.get())
         self.config["DEFAULT"]["flag_silence_removal"] = str(self.flag_silence_removal)
         self.config["DEFAULT"]["keep_silenced"] = str(self.keep_silence_removed)
         self.config["DEFAULT"]["result_encoding"] = self.result_encoding
+
+        # 出力オプションを保存（timestamp_flag を含む）
+        self._collect_output_options().save(self.config)
 
         # 選択中プロファイルを反映してから保存
         selected_name = self.profile_var.get().strip()
@@ -303,14 +417,23 @@ class TranscriptionApp:
             self.set_status("😮‍💨 選択されたモデルのAPIキーが未設定です")
             return
 
-        self.save_settings()
+        options = self._collect_output_options()
+        warning = self._validate_output_options(profile, options)
+        if warning is not None:
+            if options.is_subtitle() and profile.model not in SUBTITLE_CAPABLE_MODELS:
+                self.set_status("😮 " + warning.split("\n")[0])
+                messagebox.showerror("出力形式エラー", warning, parent=self.window)
+                return
+            if not messagebox.askyesno("確認", warning, parent=self.window):
+                return
 
+        self.output_options = options
+        self.save_settings()
         self.load_from_widgets()
 
         file_path = self.get_filepath()
-        timestamp = self.timestamp_flag.get()
 
-        controller = self.make_transcription_controller(profile, file_path, timestamp)
+        controller = self.make_transcription_controller(profile, file_path, options)
         controller.result_encoding = self.result_encoding
         controller.set_debug_options(self.debug_options)
 
@@ -328,8 +451,8 @@ class TranscriptionApp:
         file_path = file_path_display_content.strip()
         return file_path
 
-    def make_transcription_controller(self, profile, file_path, timestamp):
-        controller = TranscriptionController(profile, file_path, timestamp_flag=timestamp)
+    def make_transcription_controller(self, profile, file_path, output_options):
+        controller = TranscriptionController(profile, file_path, output_options=output_options)
 
         if self.config["DEFAULT"].get("keep_silenced", "False") == "True":
             controller.keep_silence_removed_files = True
@@ -360,6 +483,7 @@ class TranscriptionApp:
                     transcription=message,
                     encoding=self.result_encoding,
                     postfix="_errorlog",
+                    extension="txt",
                 )
 
     def load_from_widgets(self):

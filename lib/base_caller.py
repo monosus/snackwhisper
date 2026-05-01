@@ -4,6 +4,7 @@ import sys
 import tempfile
 from abc import ABC, abstractmethod
 from lib.debug_options import DebugOptions
+from lib.output_options import OutputOptions
 
 
 class Transcription:
@@ -34,6 +35,7 @@ class BaseTranscriptionCaller(ABC):
 清音除去
 """
         self.debug_options = DebugOptions()
+        self.output_options = OutputOptions()
         self.split_segment_sec = 0
         self.dry_run = False
         self.console_out = False
@@ -43,6 +45,9 @@ class BaseTranscriptionCaller(ABC):
         self.split_segment_sec = options.split_segment_sec
         self.dry_run = options.dry_run
         self.console_out = options.console_out
+
+    def set_output_options(self, options: OutputOptions):
+        self.output_options = options
 
     def set_model(self, model: str):
         self.model = model
@@ -70,7 +75,12 @@ class BaseTranscriptionCaller(ABC):
             for cropped_file in cropped_files:
                 self._transcribe_single_file(cropped_file)
 
+        self.finalize()
         return self.transcription
+
+    def finalize(self) -> str:
+        """全ファイル処理後の後処理（要約集約など）。サブクラスで必要に応じてオーバーライド"""
+        return self.transcription.transcription
 
     @abstractmethod
     def _transcribe_single_file(self, audio_file: str) -> str:

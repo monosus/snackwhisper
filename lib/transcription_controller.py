@@ -9,23 +9,26 @@ from lib.base_caller import BaseTranscriptionCaller
 from lib.whisper_caller import WhisperTranscriptionCaller
 from lib.gemini_caller import GeminiTranscriptionCaller
 from lib.model_profile import ModelProfile
+from lib.output_options import OutputOptions
 from threading import Thread
 
 
-def build_caller(profile: ModelProfile, timestamp_flag: bool) -> BaseTranscriptionCaller:
+def build_caller(profile: ModelProfile, output_options: OutputOptions) -> BaseTranscriptionCaller:
+    timestamp_flag = output_options.needs_timestamps_internally()
     if profile.provider == "google":
         caller: BaseTranscriptionCaller = GeminiTranscriptionCaller(profile.api_key, timestamp_flag)
     else:
         caller = WhisperTranscriptionCaller(profile.api_key, timestamp_flag)
     caller.set_model(profile.model)
+    caller.set_output_options(output_options)
     return caller
 
 
 class TranscriptionController:
-    def __init__(self, profile: ModelProfile, audio_file: str, timestamp_flag: bool):
+    def __init__(self, profile: ModelProfile, audio_file: str, output_options: OutputOptions):
         self.profile = profile
         self.audio_file = audio_file
-        self.timestamp_flag = timestamp_flag
+        self.output_options = output_options
 
         self.transcription = ""
         self.language = "ja"
@@ -69,6 +72,7 @@ class TranscriptionController:
                         transcription=str(e),
                         encoding=self.result_encoding,
                         postfix="_errorlog",
+                        extension="txt",
                     )
 
                 if sys.flags.debug:
@@ -90,6 +94,7 @@ class TranscriptionController:
                     transcription="Dry Run",
                     postfix="_dryrun",
                     encoding=self.result_encoding,
+                    extension=self.output_options.file_extension(),
                 )
             else:
                 silencer = AudioSilencer(self.audio_file)
@@ -111,6 +116,7 @@ class TranscriptionController:
                 self.audio_file,
                 transcription=transcription.transcription,
                 encoding=self.result_encoding,
+                extension=self.output_options.file_extension(),
             )
 
         def copy_file(src: str, dst: str):
@@ -134,12 +140,17 @@ class TranscriptionController:
 
     @staticmethod
     def output(
-        audio_file, transcription: str, encoding: str = "UTF-8", postfix: str = ""
+        audio_file,
+        transcription: str,
+        encoding: str = "UTF-8",
+        postfix: str = "",
+        extension: str = "txt",
     ):
         input_file_path = os.path.dirname(audio_file)
         input_file_body = os.path.basename(os.path.splitext(audio_file)[0])
         output_file_name = os.path.join(
-            input_file_path, input_file_body.replace(".", "_") + postfix + ".txt"
+            input_file_path,
+            input_file_body.replace(".", "_") + postfix + "." + extension,
         )
 
         if sys.flags.debug:
@@ -153,7 +164,7 @@ class TranscriptionController:
 
     def check_api_token(self):
         self.set_status("😇 APIトークンを確認しています…")
-        self.transcriptor = build_caller(self.profile, self.timestamp_flag)
+        self.transcriptor = build_caller(self.profile, self.output_options)
         self.transcriptor.set_options(self.debug_options)
 
         if self.prompt is not None:
