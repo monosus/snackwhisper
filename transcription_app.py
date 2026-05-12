@@ -1,36 +1,48 @@
 import configparser
+import datetime
 import os
 import subprocess
 import sys
 
 import tkinter as tk
+import sv_ttk
 from lib.debug_options import DebugOptions
 from lib.status_bar import StatusBar
 
 from tkinterdnd2 import DND_FILES
 
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, font as tkfont, messagebox, ttk
 from lib.my_icon import get_photo_image4icon
 from lib.transcription_controller import TranscriptionController
 from lib.constants import ButtonState
-from lib.model_profile import ProfileRegistry
+from lib.model_profile import ProfileRegistry, effective_prompt
 from lib.output_options import (
     OUTPUT_FORMATS,
     SUBTITLE_CAPABLE_MODELS,
     FORMAT_TXT,
+    FORMAT_MD,
+    FORMAT_JSON,
     OutputOptions,
+    supports_timestamps,
 )
 from lib.settings_dialog import SettingsDialog
 
 
 class TranscriptionApp:
 
-    def __init__(self, window):
+    def __init__(self, window, debug_mode: bool = False):
+        self.debug_mode = debug_mode
+        if self.debug_mode:
+            print("=== SnackWhisper debug mode ===")
+
         self.config = configparser.ConfigParser()
         self.config.read("config.ini", encoding="utf-8")
 
         self.window = window
-        self.window.title("Snackゐsper")
+        self.window.title("Snackゐsper" + (" [DEBUG]" if debug_mode else ""))
+
+        sv_ttk.set_theme("light")
+        self._setup_styles()
 
         self.result_encoding = self.config.get(
             "DEFAULT", "result_encoding", fallback="utf-8"
@@ -40,18 +52,23 @@ class TranscriptionApp:
         y = self.config.get("DEFAULT", "y", fallback="100")
         self.window.geometry(f"+{x}+{y}")
 
-        width = self.config.get("DEFAULT", "width", fallback="780")
-        height = self.config.get("DEFAULT", "height", fallback="300")
+        # ステータスバーが切れない最低サイズ
+        min_w, min_h = 760, 470
+        width = max(int(self.config.get("DEFAULT", "width", fallback="780")), min_w)
+        height = max(int(self.config.get("DEFAULT", "height", fallback="480")), min_h)
         self.window.geometry(f"{width}x{height}")
 
         self.window.resizable(True, True)
-        self.window.minsize(640, 260)
+        self.window.minsize(min_w, min_h)
 
         self.output_options = OutputOptions.load(self.config)
         self.saved_timestamp_flag = self.output_options.timestamp
 
-        self.main_frame = tk.Frame(self.window, padx=20, pady=20)
-        self.main_frame.pack(expand=True, fill=tk.BOTH)
+        # ステータスバーは先に pack して、確実に下端を確保する
+        self.status_bar = StatusBar(self.window, "😀 準備完了")
+
+        self.main_frame = ttk.Frame(self.window, padding=(16, 14, 16, 8))
+        self.main_frame.pack(side=tk.TOP, expand=True, fill=tk.BOTH)
 
         setting_flag_silence = self.config.get(
             "DEFAULT", "flag_silence_removal", fallback="True"
@@ -64,6 +81,10 @@ class TranscriptionApp:
         self.keep_silence_removed: bool = setting_keep_silence_removed == "True"
 
         self.debug_options = DebugOptions(self.config)
+        if self.debug_mode:
+            # --debug 起動時は console_out / errorlog を強制有効化
+            self.debug_options.console_out = True
+            self.debug_options.export_errorlog = True
 
         # モデルプロファイルを読み込む（旧 api_token があれば自動で1件移行される）
         self.profile_registry = ProfileRegistry.load(self.config)
@@ -75,30 +96,20 @@ class TranscriptionApp:
         self._sync_option_states()
         self._update_status_for_selected_profile()
 
-        self.prompt = self.load_dictionary()
-
-        if sys.flags.debug:
-            print(self.prompt)
-
         self.check_ffmpeg_exists()
 
-    def load_dictionary(self) -> str | None:
-        prompt: str | None = self.config.get("DEFAULT", "prompt", fallback=None)
-        if prompt is None:
-            prompt = ""
-        else:
-            prompt = prompt.replace("\\n", "\n")
+    def _setup_styles(self):
+        """sv-ttk と組み合わせる軽いスタイル調整"""
+        style = ttk.Style()
+        try:
+            base_family = tkfont.nametofont("TkDefaultFont").actual("family")
+        except Exception:
+            base_family = "Segoe UI"
 
-        filename = self.config.get("DEFAULT", "dictionary", fallback="")
-
-        if filename == "":
-            return prompt
-
-        with open(filename, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            dictionary = "".join(lines).replace("\n", " ")
-
-        return prompt + dictionary
+        style.configure("Section.TLabel", font=(base_family, 9, "bold"), foreground="#444444")
+        style.configure("Hint.TLabel", foreground="#888888")
+        style.configure("Run.TButton", font=(base_family, 11, "bold"), padding=(20, 8))
+        style.configure("Settings.TButton", padding=(8, 4))
 
     def check_ffmpeg_exists(self):
         cmd = "ffmpeg"
@@ -122,6 +133,10 @@ class TranscriptionApp:
     def set_status(self, message, button_state=ButtonState.NONE):
         self.status_bar.set_message(message)
 
+        if self.debug_mode:
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            print(f"[{ts}] {message}", flush=True)
+
         if button_state == ButtonState.RELEASE:
             self.transcribe_button.config(state=tk.NORMAL)
         elif button_state == ButtonState.DISABLE:
@@ -130,115 +145,125 @@ class TranscriptionApp:
         self.window.update()
 
     def create_widgets(self):
-        label_width = 20
-
         try:
             icon = get_photo_image4icon()
             self.window.iconphoto(False, icon)
         except tk.TclError:
             self.set_status("😫 アイコンの読み込みに失敗しました")
 
-        # モデル選択行
-        profile_frame = tk.Frame(self.main_frame)
-        profile_frame.pack(anchor="w")
-
-        tk.Label(profile_frame, text="使用モデル:", width=label_width).grid(
-            row=0, column=0, padx=5, pady=5
-        )
+        # ===== モデルセクション =====
+        model_section = self._make_section(self.main_frame, "使用モデル")
+        model_section.columnconfigure(0, weight=1)
 
         self.profile_var = tk.StringVar()
         self.profile_dropdown = ttk.Combobox(
-            profile_frame,
-            textvariable=self.profile_var,
-            state="readonly",
-            width=40,
+            model_section, textvariable=self.profile_var, state="readonly"
         )
-        self.profile_dropdown.grid(row=0, column=1, padx=5, pady=5)
+        self.profile_dropdown.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self.profile_dropdown.bind("<<ComboboxSelected>>", self._on_profile_change)
 
-        tk.Button(
-            profile_frame, text="設定...", width=8, command=self.open_settings
-        ).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(
+            model_section, text="設定...", style="Settings.TButton", command=self.open_settings
+        ).grid(row=0, column=1)
 
-        # ファイル選択行
-        file_frame = tk.Frame(self.main_frame)
-        file_frame.pack()
+        # ===== 入力ファイルセクション =====
+        file_section = self._make_section(self.main_frame, "入力ファイル")
+        file_section.columnconfigure(1, weight=1)
 
-        select_file_button = tk.Button(
-            file_frame,
-            text="ファイルを選択",
-            command=self.open_file_dialog,
-            width=label_width,
-        )
-        select_file_button.grid(row=1, column=0, padx=5, pady=5)
+        ttk.Button(
+            file_section, text="ファイルを選択...", command=self.open_file_dialog
+        ).grid(row=0, column=0, padx=(0, 8))
 
         self.file_path_display = tk.Text(
-            file_frame, height=1, width=50, font=("Arial", 8)
+            file_section,
+            height=1,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#cccccc",
+            highlightcolor="#0078d4",
+            padx=8,
+            pady=4,
+            background="#fafafa",
         )
         self.file_path_display.drop_target_register(DND_FILES)  # type: ignore
         self.file_path_display.dnd_bind("<<Drop>>", self.drop)  # type: ignore
-        self.file_path_display.grid(row=1, column=1, padx=5, pady=5, columnspan=2)
+        self.file_path_display.grid(row=0, column=1, sticky="ew")
 
-        self.transcribe_button = tk.Button(
-            file_frame, text="実行", command=self.run_transcribe, width=label_width
-        )
-        self.transcribe_button.grid(row=3, column=1, padx=5, pady=5)
+        ttk.Label(
+            file_section,
+            text="ドラッグ＆ドロップでも指定できます",
+            style="Hint.TLabel",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
-        self.timestamp_flag = tk.BooleanVar(value=self.saved_timestamp_flag)
-        timestamp_checkbox = tk.Checkbutton(
-            file_frame,
-            text="タイムスタンプ付与",
-            variable=self.timestamp_flag,
-            onvalue=True,
-            offvalue=False,
-        )
-        timestamp_checkbox.grid(row=2, column=2, padx=5, pady=5)
+        # ===== 処理オプション =====
+        process_section = self._make_section(self.main_frame, "処理オプション")
 
         self.silence_removal_flag = tk.BooleanVar(value=self.flag_silence_removal)
-        self.silence_removal_checkbox = tk.Checkbutton(
-            file_frame,
-            text="静音除去",
-            variable=self.silence_removal_flag,
-            onvalue=True,
-            offvalue=False,
+        ttk.Checkbutton(
+            process_section, text="静音除去", variable=self.silence_removal_flag
+        ).pack(side=tk.LEFT, padx=(0, 16))
+
+        self.timestamp_flag = tk.BooleanVar(value=self.saved_timestamp_flag)
+        self.timestamp_checkbox = ttk.Checkbutton(
+            process_section, text="タイムスタンプ付与", variable=self.timestamp_flag
         )
-        self.silence_removal_checkbox.grid(row=2, column=1, padx=5, pady=5)
+        self.timestamp_checkbox.pack(side=tk.LEFT)
 
-        # 出力オプション行
-        output_frame = tk.LabelFrame(self.main_frame, text="出力オプション", padx=8, pady=4)
-        output_frame.pack(anchor="w", fill=tk.X, pady=(8, 0))
+        # ===== 出力オプション =====
+        output_section = self._make_section(self.main_frame, "出力オプション")
 
-        tk.Label(output_frame, text="形式:").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+        ttk.Label(output_section, text="形式:").grid(row=0, column=0, sticky="w")
         self.output_format_var = tk.StringVar(value=self.output_options.output_format)
         self.output_format_combo = ttk.Combobox(
-            output_frame,
+            output_section,
             textvariable=self.output_format_var,
             values=OUTPUT_FORMATS,
             state="readonly",
             width=6,
         )
-        self.output_format_combo.grid(row=0, column=1, padx=4, pady=2, sticky="w")
+        self.output_format_combo.grid(row=0, column=1, padx=(6, 16), sticky="w")
         self.output_format_combo.bind("<<ComboboxSelected>>", self._on_format_change)
 
         self.speaker_var = tk.BooleanVar(value=self.output_options.speaker_diarization)
-        self.speaker_checkbox = tk.Checkbutton(
-            output_frame, text="話者識別 (Gemini)", variable=self.speaker_var
+        self.speaker_checkbox = ttk.Checkbutton(
+            output_section, text="話者識別 (Gemini)", variable=self.speaker_var
         )
-        self.speaker_checkbox.grid(row=0, column=2, padx=8, pady=2, sticky="w")
+        self.speaker_checkbox.grid(row=0, column=2, padx=(0, 12), sticky="w")
 
         self.structured_var = tk.BooleanVar(value=self.output_options.structured)
-        self.structured_checkbox = tk.Checkbutton(
-            output_frame, text="章立て + Markdown (Gemini)", variable=self.structured_var
+        self.structured_checkbox = ttk.Checkbutton(
+            output_section, text="章立て+Markdown (Gemini)", variable=self.structured_var
         )
-        self.structured_checkbox.grid(row=0, column=3, padx=8, pady=2, sticky="w")
+        self.structured_checkbox.grid(row=0, column=3, padx=(0, 12), sticky="w")
 
         self.summary_var = tk.BooleanVar(value=self.output_options.summary)
-        self.summary_checkbox = tk.Checkbutton(
-            output_frame, text="要約・TODO付与 (Gemini)", variable=self.summary_var
+        self.summary_checkbox = ttk.Checkbutton(
+            output_section, text="要約・TODO (Gemini)", variable=self.summary_var
         )
-        self.summary_checkbox.grid(row=0, column=4, padx=8, pady=2, sticky="w")
+        self.summary_checkbox.grid(row=0, column=4, sticky="w")
 
-        self.status_bar = StatusBar(self.window, "😀 準備完了")
+        # ===== 実行ボタン（フル幅） =====
+        action_frame = ttk.Frame(self.main_frame)
+        action_frame.pack(fill=tk.X, pady=(4, 0))
+        self.transcribe_button = ttk.Button(
+            action_frame,
+            text="実行",
+            style="Accent.TButton",
+            command=self.run_transcribe,
+        )
+        self.transcribe_button.pack(fill=tk.X, ipady=4)
+
+    def _make_section(self, parent, title: str) -> ttk.Frame:
+        """セクション見出し付きの枠を作って中身用 Frame を返す"""
+        wrapper = ttk.Frame(parent)
+        wrapper.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(wrapper, text=title, style="Section.TLabel").pack(
+            anchor="w", pady=(0, 4)
+        )
+        body = ttk.Frame(wrapper)
+        body.pack(fill=tk.X)
+        return body
 
     def _on_format_change(self, _event=None):
         """字幕形式を選んだら、対応モデルが選択中か警告（バリデーションは実行時に行う）"""
@@ -261,13 +286,24 @@ class TranscriptionApp:
         profile = self.profile_registry.find(self.profile_var.get())
         is_google = profile is not None and profile.provider == "google"
         subtitle_capable = profile is not None and profile.model in SUBTITLE_CAPABLE_MODELS
+        timestamp_capable = profile is not None and supports_timestamps(profile.provider, profile.model)
 
-        # 字幕形式（SRT/VTT）は whisper-1 のみ。それ以外では候補から除外し、
-        # 既に選択されていた場合は txt に戻す
-        allowed_formats = list(OUTPUT_FORMATS) if subtitle_capable else [FORMAT_TXT]
+        # 字幕形式（SRT/VTT）は whisper-1 のみ。
+        # それ以外のモデルでは候補から除外し、選択中なら txt に戻す
+        allowed_formats = (
+            list(OUTPUT_FORMATS)
+            if subtitle_capable
+            else [FORMAT_TXT, FORMAT_MD, FORMAT_JSON]
+        )
         self.output_format_combo.config(values=allowed_formats)
         if self.output_format_var.get() not in allowed_formats:
             self.output_format_var.set(FORMAT_TXT)
+
+        # タイムスタンプ：非対応モデル (gpt-4o-*-transcribe) ではグレーアウト + OFF
+        ts_state = "normal" if timestamp_capable else "disabled"
+        self.timestamp_checkbox.config(state=ts_state)
+        if not timestamp_capable:
+            self.timestamp_flag.set(False)
 
         # Gemini限定オプションは google プロバイダ以外でグレーアウト
         gemini_state = "normal" if is_google else "disabled"
@@ -457,8 +493,9 @@ class TranscriptionApp:
         if self.config["DEFAULT"].get("keep_silenced", "False") == "True":
             controller.keep_silence_removed_files = True
 
-        if self.prompt is not None:
-            controller.set_prompt(self.prompt)
+        prompt = effective_prompt(profile)
+        if prompt:
+            controller.set_prompt(prompt)
 
         controller.set_status_function = self.set_status
 

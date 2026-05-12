@@ -1,7 +1,9 @@
 import datetime
 import os
 import re
+import shutil
 import sys
+import tempfile
 from lib.base_caller import BaseTranscriptionCaller
 
 
@@ -13,6 +15,30 @@ class GeminiTranscriptionCaller(BaseTranscriptionCaller):
         self.model = "gemini-2.5-flash"
         self.client = None
         self._summary_buffer: list[str] = []  # 各分割ファイルの要約結果を集約
+
+    @staticmethod
+    def _ensure_ascii_path(audio_file: str):
+        """日本語などASCII以外を含むパスならASCII名のテンポラリへコピーする。
+        戻り値: (アップロードに使うパス, 後始末コールバック)
+        """
+        try:
+            os.fsencode(audio_file).decode("ascii")
+            return audio_file, lambda: None
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            pass
+
+        ext = os.path.splitext(audio_file)[1] or ".mp3"
+        fd, ascii_path = tempfile.mkstemp(prefix="gemini_upload_", suffix=ext)
+        os.close(fd)
+        shutil.copyfile(audio_file, ascii_path)
+
+        def _cleanup():
+            try:
+                os.unlink(ascii_path)
+            except OSError:
+                pass
+
+        return ascii_path, _cleanup
 
     def _ensure_client(self):
         if self.client is None:
@@ -53,7 +79,7 @@ class GeminiTranscriptionCaller(BaseTranscriptionCaller):
         )
 
         if self.prompt:
-            sections.append("参考辞書:\n" + self.prompt)
+            sections.append(self.prompt)
 
         return "\n\n".join(sections)
 
@@ -69,18 +95,24 @@ class GeminiTranscriptionCaller(BaseTranscriptionCaller):
         if self.console_out:
             print("transcribe_single_file(): " + audio_file)
 
-        uploaded = self.client.files.upload(file=audio_file)
+        # Gemini SDK は日本語を含むパスをHTTPヘッダにASCIIで載せようとして失敗するため、
+        # ASCII名のテンポラリにコピーしてからアップロードする
+        upload_path, cleanup = self._ensure_ascii_path(audio_file)
         try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=[self._build_instruction(), uploaded],
-            )
-        finally:
+            uploaded = self.client.files.upload(file=upload_path)
             try:
-                self.client.files.delete(name=uploaded.name)
-            except Exception:
-                if sys.flags.debug:
-                    print("Geminiアップロードファイルの削除に失敗しました")
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=[self._build_instruction(), uploaded],
+                )
+            finally:
+                try:
+                    self.client.files.delete(name=uploaded.name)
+                except Exception:
+                    if sys.flags.debug:
+                        print("Geminiアップロードファイルの削除に失敗しました")
+        finally:
+            cleanup()
 
         text = (response.text or "").strip()
 

@@ -1,4 +1,7 @@
+import datetime
+import json
 import os
+import re
 import sys
 from typing import Callable
 from lib.debug_options import DebugOptions
@@ -9,8 +12,63 @@ from lib.base_caller import BaseTranscriptionCaller
 from lib.whisper_caller import WhisperTranscriptionCaller
 from lib.gemini_caller import GeminiTranscriptionCaller
 from lib.model_profile import ModelProfile
-from lib.output_options import OutputOptions
+from lib.output_options import FORMAT_JSON, FORMAT_MD, OutputOptions
 from threading import Thread
+
+
+_TS_LINE = re.compile(r"^\[(?:(\d+):)?(\d{1,2}):(\d{2})\]\s*(.*)$")
+
+
+def format_output_text(transcription_text: str, options: OutputOptions, profile: ModelProfile, source_file: str) -> str:
+    """出力形式に応じて最終的に書き出すテキストを組み立てる。
+    SRT/VTT は caller 側で完成済みなのでそのまま返す。"""
+
+    if options.output_format == FORMAT_MD:
+        header = (
+            f"# 文字起こし: {os.path.basename(source_file)}\n\n"
+            f"- モデル: `{profile.provider}` / `{profile.model}`\n"
+            f"- 生成日時: {datetime.datetime.now().isoformat(timespec='seconds')}\n\n---\n\n"
+        )
+        return header + transcription_text
+
+    if options.output_format == FORMAT_JSON:
+        envelope = {
+            "metadata": {
+                "source_file": source_file,
+                "provider": profile.provider,
+                "model": profile.model,
+                "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+                "options": {
+                    "timestamp": options.timestamp,
+                    "speaker_diarization": options.speaker_diarization,
+                    "structured": options.structured,
+                    "summary": options.summary,
+                },
+            },
+            "text": transcription_text,
+        }
+        if options.timestamp:
+            envelope["segments"] = _parse_timestamp_segments(transcription_text)
+        return json.dumps(envelope, ensure_ascii=False, indent=2)
+
+    return transcription_text
+
+
+def _parse_timestamp_segments(text: str) -> list[dict]:
+    """`[H:MM:SS] 本文` 形式の行をセグメント配列に変換する"""
+    segments: list[dict] = []
+    for line in text.splitlines():
+        m = _TS_LINE.match(line)
+        if not m:
+            continue
+        h = int(m.group(1) or 0)
+        mm = int(m.group(2))
+        ss = int(m.group(3))
+        segments.append({
+            "start_sec": h * 3600 + mm * 60 + ss,
+            "text": m.group(4),
+        })
+    return segments
 
 
 def build_caller(profile: ModelProfile, output_options: OutputOptions) -> BaseTranscriptionCaller:
@@ -112,9 +170,16 @@ class TranscriptionController:
             self.set_status(msg)
             transcription = self.transcriptor.transcribe_audio_files(silenced_files)
 
+            formatted = format_output_text(
+                transcription.transcription,
+                self.output_options,
+                self.profile,
+                self.audio_file,
+            )
+
             return self.output(
                 self.audio_file,
-                transcription=transcription.transcription,
+                transcription=formatted,
                 encoding=self.result_encoding,
                 extension=self.output_options.file_extension(),
             )

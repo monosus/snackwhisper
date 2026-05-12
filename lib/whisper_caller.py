@@ -52,9 +52,9 @@ class WhisperTranscriptionCaller(BaseTranscriptionCaller):
         if self.dry_run:
             transcript = SimpleNamespace()
             transcript.segments = [
-                {"start": 0, "end": 5, "text": "これはテストです。"},
-                {"start": 5, "end": 10, "text": "これはテストです。"},
-                {"start": 10, "end": 15, "text": "これはテストです。"},
+                SimpleNamespace(start=0, end=5, text="これはテストです。"),
+                SimpleNamespace(start=5, end=10, text="これはテストです。"),
+                SimpleNamespace(start=10, end=15, text="これはテストです。"),
             ]
         else:
             assert self.client is not None
@@ -76,9 +76,9 @@ class WhisperTranscriptionCaller(BaseTranscriptionCaller):
         for segment in transcript.segments:  # type: ignore
             if self.console_out:
                 print("create_with_timestamp(): " + str(segment))
-            text = segment["text"]
-            endsec = file_start_sec + int(segment["start"])
-            last_sec = int(segment["end"])
+            text = _seg_attr(segment, "text")
+            endsec = file_start_sec + int(_seg_attr(segment, "start"))
+            last_sec = int(_seg_attr(segment, "end"))
             timestamp = str(datetime.timedelta(seconds=endsec))
             result += f"[{timestamp}] {text}\n"
 
@@ -216,3 +216,10 @@ def _format_ts(seconds: float, ms_sep: str) -> str:
     m, rem = divmod(rem, 60_000)
     s, ms = divmod(rem, 1000)
     return f"{h:02d}:{m:02d}:{s:02d}{ms_sep}{ms:03d}"
+
+
+def _seg_attr(segment, key: str):
+    """新APIの Pydantic モデル/旧APIの dict 両方から値を取得"""
+    if isinstance(segment, dict):
+        return segment[key]
+    return getattr(segment, key)

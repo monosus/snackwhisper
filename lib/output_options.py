@@ -3,13 +3,28 @@ from dataclasses import dataclass
 
 # 出力形式の選択肢
 FORMAT_TXT = "txt"
+FORMAT_MD = "md"
+FORMAT_JSON = "json"
 FORMAT_SRT = "srt"
 FORMAT_VTT = "vtt"
 
-OUTPUT_FORMATS = [FORMAT_TXT, FORMAT_SRT, FORMAT_VTT]
+OUTPUT_FORMATS = [FORMAT_TXT, FORMAT_MD, FORMAT_JSON, FORMAT_SRT, FORMAT_VTT]
 
 # SRT/VTTを生成可能なWhisperモデル（OpenAI APIの仕様）
 SUBTITLE_CAPABLE_MODELS = {"whisper-1"}
+
+
+def supports_timestamps(provider: str, model: str) -> bool:
+    """このモデル+プロバイダの組み合わせがタイムスタンプ生成に対応しているか。
+    - Gemini: プロンプト指示で対応可能
+    - OpenAI whisper-1: verbose_json で取得可能
+    - OpenAI gpt-4o-*-transcribe: 非対応（json/text のみ）
+    """
+    if provider == "google":
+        return True
+    if provider == "openai" and model in SUBTITLE_CAPABLE_MODELS:
+        return True
+    return False
 
 
 @dataclass
