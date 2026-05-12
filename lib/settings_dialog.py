@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, Optional
 
+from lib.about_dialog import AboutDialog
 from lib.model_profile import (
     DEFAULT_PROMPTS,
     PROVIDER_PRESETS,
@@ -173,11 +174,24 @@ class SettingsDialog:
         form_btns.grid(row=6, column=0, columnspan=2, pady=(8, 0), sticky="e")
         ttk.Button(form_btns, text="このプロファイルを保存", command=self._on_apply).pack(side=tk.LEFT)
 
-        # 下部: OK/キャンセル
+        # 下部: About / OK / キャンセル
         bottom = ttk.Frame(outer)
-        bottom.grid(row=1, column=0, columnspan=2, pady=(14, 0), sticky="e")
-        ttk.Button(bottom, text="OK", style="Accent.TButton", command=self._on_ok).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(bottom, text="キャンセル", command=self.window.destroy).pack(side=tk.LEFT)
+        bottom.grid(row=1, column=0, columnspan=2, pady=(14, 0), sticky="ew")
+        bottom.columnconfigure(0, weight=1)
+
+        ttk.Button(bottom, text="このアプリについて...", command=self._on_about).grid(
+            row=0, column=0, sticky="w"
+        )
+
+        right_btns = ttk.Frame(bottom)
+        right_btns.grid(row=0, column=1, sticky="e")
+        ttk.Button(right_btns, text="OK", style="Accent.TButton", command=self._on_ok).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(right_btns, text="キャンセル", command=self.window.destroy).pack(side=tk.LEFT)
+
+    def _on_about(self):
+        AboutDialog(self.window)
 
     def _refresh_listbox(self):
         self.listbox.delete(0, tk.END)
