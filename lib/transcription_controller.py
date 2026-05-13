@@ -11,6 +11,7 @@ from lib.audio_silencer import AudioSilencer
 from lib.base_caller import BaseTranscriptionCaller
 from lib.whisper_caller import WhisperTranscriptionCaller
 from lib.gemini_caller import GeminiTranscriptionCaller
+from lib.elevenlabs_caller import ElevenLabsTranscriptionCaller
 from lib.model_profile import ModelProfile
 from lib.output_options import FORMAT_JSON, FORMAT_MD, OutputOptions
 from threading import Thread
@@ -75,6 +76,8 @@ def build_caller(profile: ModelProfile, output_options: OutputOptions) -> BaseTr
     timestamp_flag = output_options.needs_timestamps_internally()
     if profile.provider == "google":
         caller: BaseTranscriptionCaller = GeminiTranscriptionCaller(profile.api_key, timestamp_flag)
+    elif profile.provider == "elevenlabs":
+        caller = ElevenLabsTranscriptionCaller(profile.api_key, timestamp_flag)
     else:
         caller = WhisperTranscriptionCaller(profile.api_key, timestamp_flag)
     caller.set_model(profile.model)

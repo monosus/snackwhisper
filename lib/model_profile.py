@@ -9,6 +9,7 @@ PROFILE_SECTION_PREFIX = "profile:"
 PROVIDER_PRESETS: dict[str, list[str]] = {
     "openai": ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"],
     "google": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+    "elevenlabs": ["scribe_v1", "scribe_v2"],
 }
 
 
@@ -25,6 +26,13 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "- 日本語の文字や単語の間に半角スペースを入れないでください。\n"
         "- タイムスタンプの数字の間にもスペースを入れないでください。\n"
         "- 自然な日本語の文章として出力してください。"
+    ),
+    # ElevenLabs は keyterms（語彙ヒント配列）として解釈する。1行1キーターム。
+    "elevenlabs": (
+        "本橋\n"
+        "神山\n"
+        "kintone\n"
+        "ChatGPT"
     ),
 }
 

@@ -8,4 +8,5 @@ pyinstaller main.py ^
   --add-data "icon.ico;./" ^
   --collect-data sv_ttk ^
   --collect-all google.genai ^
+  --collect-all elevenlabs ^
   --additional-hooks-dir=.

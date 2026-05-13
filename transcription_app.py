@@ -226,7 +226,7 @@ class TranscriptionApp:
 
         self.speaker_var = tk.BooleanVar(value=self.output_options.speaker_diarization)
         self.speaker_checkbox = ttk.Checkbutton(
-            output_section, text="話者識別 (Gemini)", variable=self.speaker_var
+            output_section, text="話者識別 (Gemini/ElevenLabs)", variable=self.speaker_var
         )
         self.speaker_checkbox.grid(row=0, column=2, padx=(0, 12), sticky="w")
 
@@ -285,6 +285,7 @@ class TranscriptionApp:
         """選択中プロファイルに応じて出力オプションのウィジェットを有効/無効にする"""
         profile = self.profile_registry.find(self.profile_var.get())
         is_google = profile is not None and profile.provider == "google"
+        is_elevenlabs = profile is not None and profile.provider == "elevenlabs"
         subtitle_capable = profile is not None and profile.model in SUBTITLE_CAPABLE_MODELS
         timestamp_capable = profile is not None and supports_timestamps(profile.provider, profile.model)
 
@@ -305,9 +306,12 @@ class TranscriptionApp:
         if not timestamp_capable:
             self.timestamp_flag.set(False)
 
-        # Gemini限定オプションは google プロバイダ以外でグレーアウト
+        # 話者識別は Gemini と ElevenLabs で対応
+        speaker_state = "normal" if (is_google or is_elevenlabs) else "disabled"
+        self.speaker_checkbox.config(state=speaker_state)
+
+        # 章立て + Markdown / 要約 は Gemini 限定
         gemini_state = "normal" if is_google else "disabled"
-        self.speaker_checkbox.config(state=gemini_state)
         self.structured_checkbox.config(state=gemini_state)
         self.summary_checkbox.config(state=gemini_state)
 
@@ -324,23 +328,23 @@ class TranscriptionApp:
         """組み合わせの妥当性を確認。問題があれば警告メッセージを返す"""
         if options.is_subtitle() and profile.model not in SUBTITLE_CAPABLE_MODELS:
             return (
-                f"{options.output_format.upper()} 形式は whisper-1 のみ対応です。"
+                f"{options.output_format.upper()} 形式は whisper-1 / scribe_v1 / scribe_v2 のみ対応です。"
                 f"現在のモデル「{profile.model}」では生成できません。"
             )
 
-        gemini_only_flags = []
-        if options.speaker_diarization:
-            gemini_only_flags.append("話者識別")
-        if options.structured:
-            gemini_only_flags.append("章立て + Markdown")
-        if options.summary:
-            gemini_only_flags.append("要約・TODO付与")
+        unsupported_flags = []
+        if options.speaker_diarization and profile.provider not in ("google", "elevenlabs"):
+            unsupported_flags.append("話者識別")
+        if options.structured and profile.provider != "google":
+            unsupported_flags.append("章立て + Markdown")
+        if options.summary and profile.provider != "google":
+            unsupported_flags.append("要約・TODO付与")
 
-        if gemini_only_flags and profile.provider != "google":
+        if unsupported_flags:
             return (
-                "次のオプションは Gemini プロバイダ専用です: "
-                + ", ".join(gemini_only_flags)
-                + f"\n現在のプロバイダ「{profile.provider}」では無視されます。続行しますか？"
+                "次のオプションは現在のプロバイダ「" + profile.provider + "」では未対応です: "
+                + ", ".join(unsupported_flags)
+                + "\n無視して続行しますか？"
             )
         return None
 

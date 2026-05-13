@@ -10,8 +10,10 @@ FORMAT_VTT = "vtt"
 
 OUTPUT_FORMATS = [FORMAT_TXT, FORMAT_MD, FORMAT_JSON, FORMAT_SRT, FORMAT_VTT]
 
-# SRT/VTTを生成可能なWhisperモデル（OpenAI APIの仕様）
-SUBTITLE_CAPABLE_MODELS = {"whisper-1"}
+# SRT/VTTを生成可能なモデル
+# - whisper-1: OpenAI が SRT/VTT を直接返す
+# - scribe_v1 / scribe_v2: ElevenLabs の word-level timestamp から自前で構築
+SUBTITLE_CAPABLE_MODELS = {"whisper-1", "scribe_v1", "scribe_v2"}
 
 
 def supports_timestamps(provider: str, model: str) -> bool:
@@ -19,10 +21,13 @@ def supports_timestamps(provider: str, model: str) -> bool:
     - Gemini: プロンプト指示で対応可能
     - OpenAI whisper-1: verbose_json で取得可能
     - OpenAI gpt-4o-*-transcribe: 非対応（json/text のみ）
+    - ElevenLabs Scribe: words[] のタイムスタンプを利用可能
     """
     if provider == "google":
         return True
-    if provider == "openai" and model in SUBTITLE_CAPABLE_MODELS:
+    if provider == "elevenlabs":
+        return True
+    if provider == "openai" and model in {"whisper-1"}:
         return True
     return False
 
