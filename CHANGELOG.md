@@ -1,6 +1,23 @@
 
 # Change log
 
+## [1.1.0] - 2026-05-12
+### Added
+- ElevenLabs Speech-to-Text (Scribe) API に対応 (scribe_v1 / scribe_v2)
+  - 単語レベルのタイムスタンプを利用した文字起こし
+  - ネイティブな話者ダイアライゼーション (話者A/B/C... ラベル付け)
+  - words[] から SRT/VTT 字幕を自前で構築
+  - プロファイルのプロンプトを keyterms (語彙ヒント) として渡す
+- 「話者識別」オプションを Gemini に加えて ElevenLabs でも有効化
+
+### Changed
+- 設定ダイアログで ElevenLabs プロバイダ用のデフォルトプロンプトを提供
+- 出力形式バリデーションのメッセージを更新 (whisper-1 / scribe_v1 / scribe_v2)
+- バージョン番号を 1.0.0 から 1.1.0 に更新
+
+### Fixed
+- ElevenLabs API キーが models_read 権限を持たない場合に文字起こしが起動できない問題を修正
+
 ## [1.0.0] - 2026-05-12
 ### Added
 - Google Gemini API による文字起こしに対応 (gemini-2.5-flash / gemini-2.5-pro / gemini-2.0-flash)
