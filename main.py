@@ -13,7 +13,7 @@ import _version
 __version__ = _version.__version__
 
 from transcription_app import TranscriptionApp
-from tkinterdnd2 import TkinterDnD
+from lib.dnd_compat import Tk
 
 
 def parse_args():
@@ -28,7 +28,7 @@ def parse_args():
 
 args = parse_args()
 
-window = TkinterDnD.Tk()
+window = Tk()
 app = TranscriptionApp(window, debug_mode=args.debug)
 window.update()
 window.mainloop()

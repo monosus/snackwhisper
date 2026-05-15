@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import configparser
 import datetime
 import os
-import subprocess
 import sys
 
 import tkinter as tk
 import sv_ttk
+from lib.config_path import config_path
 from lib.debug_options import DebugOptions
+from lib.dnd_compat import DND_AVAILABLE, register_drop_target
+from lib.ffmpeg_path import FFMPEG, configure_pydub
 from lib.status_bar import StatusBar
 
-from tkinterdnd2 import DND_FILES
+configure_pydub()
 
 from tkinter import filedialog, font as tkfont, messagebox, ttk
 from lib.my_icon import get_photo_image4icon
@@ -35,8 +39,10 @@ class TranscriptionApp:
         if self.debug_mode:
             print("=== SnackWhisper debug mode ===")
 
+        self.config_file = config_path()
         self.config = configparser.ConfigParser()
-        self.config.read("config.ini", encoding="utf-8")
+        if os.path.exists(self.config_file):
+            self.config.read(self.config_file, encoding="utf-8")
 
         self.window = window
         self.window.title("Snackゐsper" + (" [DEBUG]" if debug_mode else ""))
@@ -112,23 +118,7 @@ class TranscriptionApp:
         style.configure("Settings.TButton", padding=(8, 4))
 
     def check_ffmpeg_exists(self):
-        cmd = "ffmpeg"
-        startupinfo = None
-
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-
-        result = subprocess.run(
-            ["where", cmd],
-            capture_output=True,
-            text=True,
-            startupinfo=startupinfo,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-
-        self.ffmpeg_installed = result.returncode == 0
+        self.ffmpeg_installed = FFMPEG is not None
 
     def set_status(self, message, button_state=ButtonState.NONE):
         self.status_bar.set_message(message)
@@ -185,13 +175,17 @@ class TranscriptionApp:
             pady=4,
             background="#fafafa",
         )
-        self.file_path_display.drop_target_register(DND_FILES)  # type: ignore
-        self.file_path_display.dnd_bind("<<Drop>>", self.drop)  # type: ignore
+        register_drop_target(self.file_path_display, self.drop)
         self.file_path_display.grid(row=0, column=1, sticky="ew")
 
+        hint_text = (
+            "ドラッグ＆ドロップでも指定できます"
+            if DND_AVAILABLE
+            else "ファイルを選択ボタンから指定してください"
+        )
         ttk.Label(
             file_section,
-            text="ドラッグ＆ドロップでも指定できます",
+            text=hint_text,
             style="Hint.TLabel",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
@@ -427,7 +421,7 @@ class TranscriptionApp:
             self.profile_registry.select(selected_name)
         self.profile_registry.save(self.config)
 
-        with open("config.ini", "w", encoding="UTF-8") as configfile:
+        with open(self.config_file, "w", encoding="UTF-8") as configfile:
             self.config.write(configfile)
 
         return True
@@ -502,8 +496,15 @@ class TranscriptionApp:
         return controller
 
     def on_closing(self):
-        self.save_settings()
-        self.window.destroy()
+        try:
+            self.save_settings()
+        except Exception as e:
+            if self.debug_mode:
+                print(f"save_settings failed at close: {e}", file=sys.stderr)
+        try:
+            self.window.quit()
+        finally:
+            self.window.destroy()
 
     def error_process(self, error):
         status_code = error.status_code

@@ -6,6 +6,9 @@ from typing import List
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
 
+from lib.ffmpeg_path import FFMPEG
+from lib.subprocess_utils import hidden_window_kwargs
+
 
 class AudioSilencer:
     def __init__(
@@ -56,14 +59,8 @@ class AudioSilencer:
             print("removed: {:.2f} [min]".format(org_ms / 60 / 1000))
 
     def extract_audio(self, input_file, output_file):
-        startupinfo = None
-        if os.name == "nt":  # Windowsの場合
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-
         command = [
-            "ffmpeg",
+            FFMPEG or "ffmpeg",
             "-i",
             input_file,
             "-vn",
@@ -76,8 +73,7 @@ class AudioSilencer:
         subprocess.run(
             command,
             check=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-            startupinfo=startupinfo,
+            **hidden_window_kwargs(),
         )
 
     def exec(self) -> List[str]:

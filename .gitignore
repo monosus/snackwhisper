@@ -9,3 +9,6 @@
 /main.dist
 /main.onefile-build
 /main.exe
+.DS_Store
+/icon.icns
+/vendor

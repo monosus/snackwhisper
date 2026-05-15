@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import json
 import os
@@ -200,7 +202,7 @@ class TranscriptionController:
             time.sleep(5)
             return "[DEBUG_MODE]"
 
-        thread = Thread(target=handling_transcribe_audio)
+        thread = Thread(target=handling_transcribe_audio, daemon=True)
         thread.start()
 
     @staticmethod

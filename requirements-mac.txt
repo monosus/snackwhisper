@@ -1,0 +1,20 @@
+# macOS 用の依存関係。Windows 専用パッケージ (pywin32-ctypes / pefile) を含まない。
+# 直接依存だけを列挙し、推移依存は pip に解決させる。
+#
+# 必要環境:
+#   - Python 3.10+ (推奨: 3.12)
+#       $ brew install python@3.12 python-tk@3.12
+#   - ffmpeg
+#       $ brew install ffmpeg
+#
+# インストール:
+#   $ /opt/homebrew/bin/python3.12 -m venv venv
+#   $ source venv/bin/activate
+#   $ pip install -r requirements-mac.txt
+
+openai>=1.55.0
+google-genai>=0.3.0
+sv-ttk>=2.6.0
+pydub==0.25.1
+tkinterdnd2==0.3.0
+pyinstaller>=6.4.0

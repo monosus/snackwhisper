@@ -5,6 +5,8 @@ import tempfile
 from abc import ABC, abstractmethod
 from lib.debug_options import DebugOptions
 from lib.output_options import OutputOptions
+from lib.ffmpeg_path import FFMPEG, FFPROBE
+from lib.subprocess_utils import hidden_window_kwargs
 
 
 class Transcription:
@@ -92,11 +94,7 @@ class BaseTranscriptionCaller(ABC):
 
     # ffmpegを使ってファイルを分割する
     def split_audio(self, input_file: str, max_size: int):
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
+        hidden_kwargs = hidden_window_kwargs()
 
         target_duration = self.split_segment_sec
 
@@ -104,15 +102,14 @@ class BaseTranscriptionCaller(ABC):
             target_duration = 5
         elif target_duration == 0:
             duration_command = [
-                "ffprobe", "-i", input_file,
+                FFPROBE or "ffprobe", "-i", input_file,
                 "-show_entries", "format=duration",
                 "-v", "quiet", "-of", "csv=p=0",
             ]
             duration = float(
                 subprocess.check_output(
                     duration_command,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                    startupinfo=startupinfo,
+                    **hidden_kwargs,
                 ).decode("utf-8").strip()
             )
             size = os.path.getsize(input_file)
@@ -129,7 +126,7 @@ class BaseTranscriptionCaller(ABC):
             print("==== output_filepath: " + output_filepath)
 
         command = [
-            "ffmpeg", "-i", input_file,
+            FFMPEG or "ffmpeg", "-i", input_file,
             "-f", "segment",
             "-segment_time", str(target_duration),
             "-acodec", "copy",
@@ -144,8 +141,7 @@ class BaseTranscriptionCaller(ABC):
         subprocess.run(
             command,
             check=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-            startupinfo=startupinfo,
+            **hidden_kwargs,
         )
 
         split_files = []
