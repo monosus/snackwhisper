@@ -1,7 +1,6 @@
 /lib/__pycache__
 /build
-/dist/makezip.bat
-/dist/snackwhisper.exe
+/dist
 /resource
 /__pycache__
 config.ini
@@ -10,4 +9,3 @@ config.ini
 /main.dist
 /main.onefile-build
 /main.exe
-
