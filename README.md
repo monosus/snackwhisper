@@ -10,7 +10,7 @@ SnackWhisperはWhisper APIを利用した音声書き起こしを実行します
     $ python main.py
 
 ## ダウンロード
-pyinstallerを使ってexe化した[Windows用バイナリ](https://github.com/monosus/snackwhisper/tree/main/dist)も用意しています。
+pyinstallerを使ってexe化した[Windows用バイナリ](https://github.com/monosus/snackwhisper/releases)も用意しています。
 
 β版につき、自己責任でご利用ください。
 
