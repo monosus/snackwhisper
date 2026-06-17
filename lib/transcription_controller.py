@@ -118,93 +118,94 @@ class TranscriptionController:
             self.set_status_function(message, button_state)
 
     def transcribe_audio(self, flag_silence_removal: bool = False):
+        """単一ファイルを別スレッドで非同期に文字起こし。
+        完了時にステータスバーを更新し、ボタンを RELEASE する（旧API互換）。"""
 
         def handling_transcribe_audio():
             try:
-                if sys.flags.debug:
-                    saved_file = sleep_for_debugging()
-                else:
-                    saved_file = silence_and_transcribe()
+                saved_file = self.transcribe_audio_sync(flag_silence_removal)
             except Exception as e:
                 self.set_status(f"😫 エラーです: {e}", ButtonState.RELEASE)
-                if self.export_errorlog:
-                    self.output(
-                        self.audio_file,
-                        transcription=str(e),
-                        encoding=self.result_encoding,
-                        postfix="_errorlog",
-                        extension="txt",
-                    )
-
                 if sys.flags.debug:
                     print(e)
                 return
 
             self.set_status("😇 ファイルを保存します")
-
             saved_file = saved_file.split("/")[-1]
             self.set_status(f"🤩 完了しました: {saved_file}", ButtonState.RELEASE)
 
-        def silence_and_transcribe():
-            self.set_status("😇 音声抽出と静音除去を処理しています…")
+        thread = Thread(target=handling_transcribe_audio)
+        thread.start()
 
-            silenced_files: list[str] = []
-            if self.dry_run:
-                return self.output(
+    def transcribe_audio_sync(self, flag_silence_removal: bool = False) -> str:
+        """同期版。保存ファイルパスを返す。例外は呼び出し側へ伝播。
+        ボタン状態は変えない（バッチ処理時に呼び出し側で制御するため）。"""
+        if sys.flags.debug:
+            import time
+            time.sleep(5)
+            return "[DEBUG_MODE]"
+        try:
+            return self._silence_and_transcribe(flag_silence_removal)
+        except Exception as e:
+            if self.export_errorlog:
+                self.output(
                     self.audio_file,
-                    transcription="Dry Run",
-                    postfix="_dryrun",
+                    transcription=str(e),
                     encoding=self.result_encoding,
-                    extension=self.output_options.file_extension(),
+                    postfix="_errorlog",
+                    extension="txt",
                 )
-            else:
-                silencer = AudioSilencer(self.audio_file)
-                silencer.flag_silence_removal = flag_silence_removal
-                silenced_files = silencer.exec()
+            raise
 
-                if self.keep_silence_removed_files:
-                    input_file_path = os.path.dirname(self.audio_file)
-                    for silenced_file in silenced_files:
-                        copy_file(silenced_file, input_file_path)
+    def _silence_and_transcribe(self, flag_silence_removal: bool) -> str:
+        self.set_status("😇 音声抽出と静音除去を処理しています…")
 
-            msg = (
-                f"😇 {self.profile.provider} ({self.profile.model}) で文字起こし中…"
-            )
-            self.set_status(msg)
-            transcription = self.transcriptor.transcribe_audio_files(silenced_files)
-
-            formatted = format_output_text(
-                transcription.transcription,
-                self.output_options,
-                self.profile,
-                self.audio_file,
-            )
-
+        if self.dry_run:
             return self.output(
                 self.audio_file,
-                transcription=formatted,
+                transcription="Dry Run",
+                postfix="_dryrun",
                 encoding=self.result_encoding,
                 extension=self.output_options.file_extension(),
             )
 
-        def copy_file(src: str, dst: str):
-            import shutil
+        silencer = AudioSilencer(self.audio_file)
+        silencer.flag_silence_removal = flag_silence_removal
+        silenced_files: list[str] = silencer.exec()
 
-            if sys.platform == "win32":
-                shutil.copy(src, dst)
-            elif sys.platform == "darwin":
-                shutil.copy2(src, dst)
-            elif sys.platform == "linux":
-                shutil.copy2(src, dst)
+        if self.keep_silence_removed_files:
+            input_file_path = os.path.dirname(self.audio_file)
+            for silenced_file in silenced_files:
+                self._copy_file(silenced_file, input_file_path)
 
-        def sleep_for_debugging():
-            import time
+        msg = f"😇 {self.profile.provider} ({self.profile.model}) で文字起こし中…"
+        self.set_status(msg)
+        transcription = self.transcriptor.transcribe_audio_files(silenced_files)
 
-            time.sleep(5)
-            return "[DEBUG_MODE]"
+        formatted = format_output_text(
+            transcription.transcription,
+            self.output_options,
+            self.profile,
+            self.audio_file,
+        )
 
-        thread = Thread(target=handling_transcribe_audio)
-        thread.start()
+        return self.output(
+            self.audio_file,
+            transcription=formatted,
+            encoding=self.result_encoding,
+            extension=self.output_options.file_extension(),
+        )
+
+    @staticmethod
+    def _copy_file(src: str, dst: str):
+        import shutil
+
+        if sys.platform == "win32":
+            shutil.copy(src, dst)
+        elif sys.platform == "darwin":
+            shutil.copy2(src, dst)
+        elif sys.platform == "linux":
+            shutil.copy2(src, dst)
 
     @staticmethod
     def output(

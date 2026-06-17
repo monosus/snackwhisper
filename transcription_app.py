@@ -3,6 +3,7 @@ import datetime
 import os
 import subprocess
 import sys
+from threading import Thread
 
 import tkinter as tk
 import sv_ttk
@@ -170,13 +171,23 @@ class TranscriptionApp:
         file_section = self._make_section(self.main_frame, "入力ファイル")
         file_section.columnconfigure(1, weight=1)
 
+        button_col = ttk.Frame(file_section)
+        button_col.grid(row=0, column=0, padx=(0, 8), sticky="ns")
         ttk.Button(
-            file_section, text="ファイルを選択...", command=self.open_file_dialog
-        ).grid(row=0, column=0, padx=(0, 8))
+            button_col, text="ファイルを選択...", command=self.open_file_dialog
+        ).pack(fill=tk.X)
+        ttk.Button(
+            button_col, text="クリア", command=self._clear_files
+        ).pack(fill=tk.X, pady=(4, 0))
+
+        text_box = ttk.Frame(file_section)
+        text_box.grid(row=0, column=1, sticky="nsew")
+        text_box.columnconfigure(0, weight=1)
+        text_box.rowconfigure(0, weight=1)
 
         self.file_path_display = tk.Text(
-            file_section,
-            height=1,
+            text_box,
+            height=5,
             relief="flat",
             highlightthickness=1,
             highlightbackground="#cccccc",
@@ -184,14 +195,19 @@ class TranscriptionApp:
             padx=8,
             pady=4,
             background="#fafafa",
+            wrap="none",
         )
         self.file_path_display.drop_target_register(DND_FILES)  # type: ignore
         self.file_path_display.dnd_bind("<<Drop>>", self.drop)  # type: ignore
-        self.file_path_display.grid(row=0, column=1, sticky="ew")
+        self.file_path_display.grid(row=0, column=0, sticky="nsew")
+
+        file_scroll = ttk.Scrollbar(text_box, orient="vertical", command=self.file_path_display.yview)
+        file_scroll.grid(row=0, column=1, sticky="ns")
+        self.file_path_display.config(yscrollcommand=file_scroll.set)
 
         ttk.Label(
             file_section,
-            text="ドラッグ＆ドロップでも指定できます",
+            text="複数ファイルをドラッグ＆ドロップ可。1ファイル1行で表示されます",
             style="Hint.TLabel",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
@@ -380,12 +396,33 @@ class TranscriptionApp:
     def drop(self, event):
         if sys.flags.debug:
             print(event)
-        self.file_path_display.delete("1.0", tk.END)
-        replaced = self.replace_irregular_char(event.data)
-        self.file_path_display.insert(tk.END, replaced)
+        # tkinterdnd2 は複数ファイルを Tcl リスト形式 ("{path1} {path2}") で渡してくる
+        try:
+            raw_items = self.window.tk.splitlist(event.data)
+        except Exception:
+            raw_items = [event.data]
 
-        filebody = replaced.split("/")[-1]
-        self.set_status(f"😀 ファイルを選択しました: {filebody}")
+        paths = [self.replace_irregular_char(p) for p in raw_items if p]
+        self._set_file_paths(paths)
+
+        if len(paths) == 1:
+            self.set_status(f"😀 ファイルを選択しました: {os.path.basename(paths[0])}")
+        else:
+            self.set_status(f"😀 {len(paths)} 件のファイルを選択しました")
+
+    def _set_file_paths(self, paths):
+        """改行区切りで file_path_display を書き換える"""
+        self.file_path_display.delete("1.0", tk.END)
+        self.file_path_display.insert("1.0", "\n".join(paths))
+
+    def _get_file_paths(self):
+        """空行を除外したファイルパスのリスト"""
+        raw = self.file_path_display.get("1.0", tk.END)
+        return [p.strip() for p in raw.splitlines() if p.strip()]
+
+    def _clear_files(self):
+        self.file_path_display.delete("1.0", tk.END)
+        self.set_status("😀 ファイル一覧をクリアしました")
 
     def replace_irregular_char(self, text):
         text = text.replace("\\", "/")
@@ -403,10 +440,14 @@ class TranscriptionApp:
         if self.ffmpeg_installed:
             filetypes.append(("メディアファイル", "*.mp4"))
 
-        file_path = filedialog.askopenfilename(filetypes=filetypes)
-        if file_path:
-            self.file_path_display.delete("1.0", tk.END)
-            self.file_path_display.insert(tk.END, file_path)
+        file_paths = filedialog.askopenfilenames(filetypes=filetypes)
+        if file_paths:
+            paths = [self.replace_irregular_char(p) for p in file_paths]
+            self._set_file_paths(paths)
+            if len(paths) == 1:
+                self.set_status(f"😀 ファイルを選択しました: {os.path.basename(paths[0])}")
+            else:
+                self.set_status(f"😀 {len(paths)} 件のファイルを選択しました")
 
     def save_settings(self, persist_only: bool = False) -> bool:
         if not persist_only:
@@ -441,8 +482,21 @@ class TranscriptionApp:
             self.set_status("😮 ffmpegをインストールしてください")
             return
 
-        if self.file_path_display.get("1.0", tk.END).strip() == "":
+        files = self._get_file_paths()
+        if not files:
             self.set_status("😮 ファイルが未選択です")
+            return
+
+        # 不在ファイルがあれば中断
+        missing = [p for p in files if not os.path.isfile(p)]
+        if missing:
+            self.set_status(f"😮 存在しないファイルがあります: {len(missing)}件")
+            messagebox.showerror(
+                "ファイル不在",
+                "以下のファイルが見つかりません:\n\n" + "\n".join(missing[:10])
+                + ("\n..." if len(missing) > 10 else ""),
+                parent=self.window,
+            )
             return
 
         selected_name = self.profile_var.get().strip()
@@ -471,25 +525,61 @@ class TranscriptionApp:
         self.save_settings()
         self.load_from_widgets()
 
-        file_path = self.get_filepath()
+        self._start_batch_transcribe(files, profile, options)
 
-        controller = self.make_transcription_controller(profile, file_path, options)
-        controller.result_encoding = self.result_encoding
-        controller.set_debug_options(self.debug_options)
+    def _start_batch_transcribe(self, files, profile, options):
+        """バッチ処理用のワーカースレッドを起動"""
+        self.set_status(
+            f"😆 {len(files)}件の処理を開始します", ButtonState.DISABLE
+        )
+        thread = Thread(
+            target=self._batch_worker,
+            args=(files, profile, options),
+            daemon=True,
+        )
+        thread.start()
 
-        if controller.check_api_token() is False:
-            self.set_status("😮‍💨 APIトークンが無効です")
-            return
+    def _batch_worker(self, files, profile, options):
+        """ファイルを順次処理する。APIキー無効時のみ中断、それ以外は継続"""
+        success_count = 0
+        failed: list[tuple[str, str]] = []
+        total = len(files)
+        api_key_checked = False
 
-        filebody = file_path.split("/")[-1]
-        self.set_status(f"😆 開始します: {filebody}", ButtonState.DISABLE)
+        for i, file_path in enumerate(files, 1):
+            basename = os.path.basename(file_path)
+            self.set_status(f"😆 ({i}/{total}) {basename} を処理中…")
 
-        controller.transcribe_audio(self.flag_silence_removal)
+            controller = self.make_transcription_controller(profile, file_path, options)
+            controller.result_encoding = self.result_encoding
+            controller.set_debug_options(self.debug_options)
 
-    def get_filepath(self):
-        file_path_display_content = self.file_path_display.get("1.0", tk.END)
-        file_path = file_path_display_content.strip()
-        return file_path
+            # APIキー検証は初回のみ（プロファイルが共通なので2回目以降は不要）
+            if not api_key_checked:
+                if controller.check_api_token() is False:
+                    self.set_status("😮‍💨 APIトークンが無効です", ButtonState.RELEASE)
+                    return
+                api_key_checked = True
+            else:
+                # キー検証はスキップだが transcriptor の初期化は必要
+                controller.check_api_token()
+
+            try:
+                controller.transcribe_audio_sync(self.flag_silence_removal)
+                success_count += 1
+            except Exception as e:
+                if sys.flags.debug:
+                    print(f"[batch] {basename} エラー: {e}")
+                failed.append((basename, str(e)))
+
+        # サマリ
+        if not failed:
+            self.set_status(f"🤩 全{total}件完了", ButtonState.RELEASE)
+        else:
+            self.set_status(
+                f"⚠ {success_count}件成功 / {len(failed)}件失敗",
+                ButtonState.RELEASE,
+            )
 
     def make_transcription_controller(self, profile, file_path, output_options):
         controller = TranscriptionController(profile, file_path, output_options=output_options)
@@ -518,14 +608,15 @@ class TranscriptionApp:
         else:
             self.set_status(f"😫 エラーです: {message}")
             if self.debug_options.export_errorlog:
-                file_path = self.get_filepath()
-                TranscriptionController.output(
-                    file_path,
-                    transcription=message,
-                    encoding=self.result_encoding,
-                    postfix="_errorlog",
-                    extension="txt",
-                )
+                files = self._get_file_paths()
+                if files:
+                    TranscriptionController.output(
+                        files[0],
+                        transcription=message,
+                        encoding=self.result_encoding,
+                        postfix="_errorlog",
+                        extension="txt",
+                    )
 
     def load_from_widgets(self):
         self.flag_silence_removal = self.silence_removal_flag.get()
